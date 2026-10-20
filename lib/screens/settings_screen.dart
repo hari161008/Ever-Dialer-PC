@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/bluetooth_service.dart';
+import '../services/sync_service.dart';
 import '../widgets/bluetooth_container.dart';
 import '../widgets/audio_status_card.dart';
 
@@ -7,12 +8,26 @@ class SettingsScreen extends StatelessWidget {
   final BluetoothService bluetoothService;
   final ThemeMode themeMode;
   final VoidCallback onToggleTheme;
+  final double displayScale;
+  final double fontScale;
+  final ValueChanged<double>? onUpdateDisplayScale;
+  final ValueChanged<double>? onUpdateFontScale;
+  final VoidCallback? onResetDisplayScale;
+  final VoidCallback? onResetFontScale;
+  final PcSyncService? syncService;
 
   const SettingsScreen({
     super.key,
     required this.bluetoothService,
     required this.themeMode,
     required this.onToggleTheme,
+    this.displayScale = 1.0,
+    this.fontScale = 1.0,
+    this.onUpdateDisplayScale,
+    this.onUpdateFontScale,
+    this.onResetDisplayScale,
+    this.onResetFontScale,
+    this.syncService,
   });
 
   IconData _getThemeIcon() {
@@ -35,6 +50,136 @@ class SettingsScreen extends StatelessWidget {
       case ThemeMode.system:
         return 'System Dynamic (KDE)';
     }
+  }
+
+  Widget _buildScaleSlider({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required double value,
+    required ValueChanged<double>? onChanged,
+    required VoidCallback? onReset,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final percentText = '${(value * 100).round()}%';
+    final isDefault = (value - 1.0).abs() < 0.01;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                icon,
+                color: colorScheme.primary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: isDefault
+                    ? colorScheme.surfaceContainerHighest
+                    : colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                percentText,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isDefault
+                      ? colorScheme.onSurfaceVariant
+                      : colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+            if (!isDefault && onReset != null) ...[
+              const SizedBox(width: 6),
+              IconButton(
+                icon: const Icon(Icons.restart_alt, size: 20),
+                tooltip: 'Reset to 100%',
+                visualDensity: VisualDensity.compact,
+                onPressed: onReset,
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+          ),
+          child: Slider(
+            value: value.clamp(0.8, 1.5),
+            min: 0.8,
+            max: 1.5,
+            divisions: 14,
+            label: percentText,
+            onChanged: onChanged,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '80%',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: colorScheme.outline,
+                ),
+              ),
+              Text(
+                '100% (Default)',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: colorScheme.outline,
+                  fontWeight: isDefault ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+              Text(
+                '150%',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: colorScheme.outline,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -84,6 +229,83 @@ class SettingsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // 0. Bluetooth PC Sync Card
+                if (syncService != null) ...[
+                  ListenableBuilder(
+                    listenable: syncService!,
+                    builder: (context, _) {
+                      final isSyncEnabled = syncService!.pcSyncEnabled;
+                      return Card(
+                        elevation: 0,
+                        color: colorScheme.surfaceContainer,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          side: BorderSide(
+                            color: isSyncEnabled
+                                ? colorScheme.primary.withValues(alpha: 0.3)
+                                : colorScheme.outlineVariant,
+                            width: 1.2,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: isSyncEnabled
+                                      ? colorScheme.primaryContainer
+                                      : colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(
+                                  Icons.sync,
+                                  color: isSyncEnabled
+                                      ? colorScheme.primary
+                                      : colorScheme.outline,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Bluetooth PC Sync',
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    Text(
+                                      isSyncEnabled
+                                          ? 'Syncing with Ever Dialer Mobile (Landscape view active)'
+                                          : 'Display Mobile landscape main screen & sync data',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: isSyncEnabled,
+                                onChanged: (val) {
+                                  syncService!.setPcSyncEnabled(val);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 18),
+                ],
+
                 // 1. Primary Container: "Bluetooth Connection"
                 BluetoothContainer(
                   state: state,
@@ -115,50 +337,94 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(20.0),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Icon(
-                            _getThemeIcon(),
-                            color: colorScheme.primary,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Appearance Theme',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: colorScheme.onSurface,
-                                ),
+                        // Appearance Theme
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                              Text(
-                                _getThemeLabel(),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
+                              child: Icon(
+                                _getThemeIcon(),
+                                color: colorScheme.primary,
+                                size: 22,
                               ),
-                            ],
-                          ),
-                        ),
-                        OutlinedButton(
-                          onPressed: onToggleTheme,
-                          style: OutlinedButton.styleFrom(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(999),
                             ),
-                          ),
-                          child: const Text('Change'),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Appearance Theme',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  Text(
+                                    _getThemeLabel(),
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            OutlinedButton(
+                              onPressed: onToggleTheme,
+                              style: OutlinedButton.styleFrom(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                              child: const Text('Change'),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
+                        Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Display scale slider
+                        _buildScaleSlider(
+                          context: context,
+                          icon: Icons.aspect_ratio,
+                          title: 'Display scale',
+                          subtitle: 'UI and layout scaling',
+                          value: displayScale,
+                          onChanged: onUpdateDisplayScale,
+                          onReset: onResetDisplayScale,
+                        ),
+
+                        const SizedBox(height: 16),
+                        Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Font scale slider
+                        _buildScaleSlider(
+                          context: context,
+                          icon: Icons.format_size,
+                          title: 'Font scale',
+                          subtitle: 'Text size scaling',
+                          value: fontScale,
+                          onChanged: onUpdateFontScale,
+                          onReset: onResetFontScale,
                         ),
                       ],
                     ),
