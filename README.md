@@ -37,38 +37,6 @@ flutter build linux
 ./build/linux/x64/release/bundle/ever_dialer_pc
 ```
 
-### Via Application Menu
-You can find **Ever Dialer PC** directly in your Fedora application launcher (KDE Start Menu) under Multimedia / Utilities.
-
----
-
-## 🛠️ Developing with VSCodium
-
-VSCodium has been configured with:
-- **Dart & Flutter extensions** (`Dart-Code.dart-code`, `Dart-Code.flutter`).
-- **One-key Run & Debug**: Press `F5` to start debugging on Linux Desktop with full **Hot Reload**!
-- Press `Ctrl + Shift + B` to trigger default run task.
-
----
-
-## ⚡ Git Quick Upload Command
-
-You can upload your code changes directly from your terminal by running:
-```bash
-git_upload
-```
-*(or `./git_upload`)*
-
-This runs:
-1. `git status`
-2. `git add .`
-3. `git commit -m "update"`
-4. `git branch -M main`
-5. `git push -u origin main`
-6. `git status`
-
----
-
 ## 📂 Project Structure
 
 ```

@@ -1,32 +1,28 @@
 #!/usr/bin/env bash
-set -e
 
-REPO_DIR="/home/hari/Rust Rover/Ever Dialer For PC"
+# Resolve repository directory to where this script is located
+REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 cd "$REPO_DIR"
 
-echo "--- git status ---"
+echo "=== git status ==="
 git status
 
 echo ""
-echo "--- git add . ---"
+echo "=== git add . ==="
 git add .
 
 echo ""
-echo "--- git commit -m \"update\" ---"
-if git diff-index --quiet HEAD -- 2>/dev/null; then
-    echo "Nothing new to commit."
-else
-    git commit -m "update"
-fi
+echo "=== git commit -m \"update\" ==="
+git commit -m "update" || echo "Nothing new to commit."
 
 echo ""
-echo "--- git branch -M main ---"
+echo "=== git branch -M main ==="
 git branch -M main
 
 echo ""
-echo "--- git push -u origin main ---"
+echo "=== git push -u origin main ==="
 git push -u origin main
 
 echo ""
-echo "--- git status ---"
+echo "=== git status ==="
 git status
