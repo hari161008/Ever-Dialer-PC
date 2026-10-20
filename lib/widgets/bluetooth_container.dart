@@ -219,10 +219,10 @@ class BluetoothContainer extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.laptop, size: 15, color: colorScheme.primary),
+                    Icon(Icons.radar, size: 15, color: colorScheme.primary),
                     const SizedBox(width: 6),
                     Text(
-                      'PC: ${state.alias}',
+                      state.alias,
                       style: TextStyle(
                         color: colorScheme.onSurface,
                         fontSize: 13,
@@ -353,7 +353,7 @@ class BluetoothContainer extends StatelessWidget {
                 _buildGuideStep(
                   context,
                   step: '2',
-                  text: 'Select your PC "${state.alias}" and confirm pairing on your phone.',
+                  text: 'Tap on "${state.alias}" in available devices to pair.',
                 ),
                 const SizedBox(height: 6),
                 _buildGuideStep(

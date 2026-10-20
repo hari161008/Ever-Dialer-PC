@@ -1,25 +1,32 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
-echo "=== 1. Git Status ==="
+REPO_DIR="/home/hari/Rust Rover/Ever Dialer For PC"
+cd "$REPO_DIR"
+
+echo "--- git status ---"
 git status
 
 echo ""
-echo "=== 2. Staging all changes (git add .) ==="
+echo "--- git add . ---"
 git add .
 
 echo ""
-echo "=== 3. Committing changes (git commit -m \"update\") ==="
-git commit -m "update" || echo "Nothing new to commit."
+echo "--- git commit -m \"update\" ---"
+if git diff-index --quiet HEAD -- 2>/dev/null; then
+    echo "Nothing new to commit."
+else
+    git commit -m "update"
+fi
 
 echo ""
-echo "=== 4. Setting branch to main (git branch -M main) ==="
+echo "--- git branch -M main ---"
 git branch -M main
 
 echo ""
-echo "=== 5. Pushing to origin main (git push -u origin main) ==="
+echo "--- git push -u origin main ---"
 git push -u origin main
 
 echo ""
-echo "=== 6. Final Git Status ==="
+echo "--- git status ---"
 git status

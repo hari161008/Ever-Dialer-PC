@@ -51,6 +51,24 @@ VSCodium has been configured with:
 
 ---
 
+## ⚡ Git Quick Upload Command
+
+You can upload your code changes directly from your terminal by running:
+```bash
+git_upload
+```
+*(or `./git_upload`)*
+
+This runs:
+1. `git status`
+2. `git add .`
+3. `git commit -m "update"`
+4. `git branch -M main`
+5. `git push -u origin main`
+6. `git status`
+
+---
+
 ## 📂 Project Structure
 
 ```

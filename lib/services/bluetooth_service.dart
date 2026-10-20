@@ -69,7 +69,7 @@ class BluetoothState {
 class BluetoothService extends ChangeNotifier {
   static const _prefSpeakerModeKey = 'speaker_mode_enabled';
 
-  BluetoothState _state = BluetoothState(alias: Platform.localHostname);
+  BluetoothState _state = const BluetoothState();
   Timer? _pollTimer;
   SharedPreferences? _prefs;
 
@@ -83,6 +83,7 @@ class BluetoothService extends ChangeNotifier {
     SharedPreferences? prefs,
   }) {
     _prefs = prefs;
+    // Check initial saved state synchronously if prefs already provided
     if (_prefs != null) {
       final saved = _prefs!.getBool(_prefSpeakerModeKey) ?? false;
       _state = _state.copyWith(speakerModeEnabled: saved);
@@ -101,6 +102,7 @@ class BluetoothService extends ChangeNotifier {
 
     if (autoRefresh) {
       if (savedEnabled) {
+        // If persisted as ON, ensure hardware is active
         await _applySpeakerHardware(true);
       }
       await refresh();
@@ -120,13 +122,14 @@ class BluetoothService extends ChangeNotifier {
   }
 
   Future<void> toggleSpeakerMode(bool enable) async {
+    // Persist the user's explicit choice across app restarts
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs?.setBool(_prefSpeakerModeKey, enable);
 
     _state = _state.copyWith(
       speakerModeEnabled: enable,
       statusMessage: enable
-          ? 'Enabling Bluetooth Speaker...'
+          ? 'Starting Bluetooth Speaker...'
           : 'Restoring Bluetooth...',
     );
     notifyListeners();
@@ -152,19 +155,21 @@ class BluetoothService extends ChangeNotifier {
         // 2. Power on bluetooth
         await Process.run('bluetoothctl', ['power', 'on']);
 
-        // 3. Make discoverable & pairable without timeout
+        // 3. Keep default PC name (do NOT change system alias)
+
+        // 4. Make discoverable & pairable without timeout
         await Process.run('bluetoothctl', ['discoverable-timeout', '0']);
         await Process.run('bluetoothctl', ['discoverable', 'on']);
         await Process.run('bluetoothctl', ['pairable', 'on']);
 
-        // 4. Ensure speakers are unmuted
+        // 5. Ensure speakers are unmuted
         await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
 
         _state = _state.copyWith(
           powered: true,
           discoverable: true,
           pairable: true,
-          statusMessage: 'Discoverable as ${_state.alias}',
+          statusMessage: 'Discoverable: Phone can connect to ${_state.alias}',
         );
       } catch (e) {
         _state = _state.copyWith(statusMessage: 'Error enabling speaker: $e');
@@ -172,7 +177,7 @@ class BluetoothService extends ChangeNotifier {
     } else {
       // Return Bluetooth configuration back to normal stage
       try {
-        // 1. Disconnect any active media streaming device
+        // 1. Disconnect any connected mobile device
         if (_state.connectedDevice != null) {
           await Process.run(
             'bluetoothctl',
@@ -257,17 +262,15 @@ class BluetoothService extends ChangeNotifier {
             pairable = trimmed.endsWith('yes');
           } else if (trimmed.startsWith('Alias:')) {
             final parts = trimmed.split('Alias:');
-            if (parts.length > 1) {
-              final found = parts[1].trim();
-              if (found.isNotEmpty) {
-                alias = found;
-              }
+            if (parts.length > 1 && parts[1].trim().isNotEmpty) {
+              alias = parts[1].trim();
+            }
+          } else if (trimmed.startsWith('Name:')) {
+            final parts = trimmed.split('Name:');
+            if (parts.length > 1 && (alias.isEmpty || alias == 'Ever Dialer PC')) {
+              alias = parts[1].trim();
             }
           }
-        }
-
-        if (!_state.speakerModeEnabled) {
-          _originalPowered ??= powered;
         }
 
         // Check for connected devices
@@ -290,9 +293,6 @@ class BluetoothService extends ChangeNotifier {
                   name: name,
                   connected: true,
                 );
-
-                // Auto-trust connected device so future connections are seamless
-                Process.run('bluetoothctl', ['trust', mac]);
                 break;
               }
             }
@@ -319,6 +319,7 @@ class BluetoothService extends ChangeNotifier {
       );
       if (volResult.exitCode == 0) {
         final text = (volResult.stdout as String).trim();
+        // e.g. "Volume: 0.40 [MUTED]" or "Volume: 0.75"
         final isMuted = text.contains('[MUTED]');
         double volume = _state.speakerVolume;
 
