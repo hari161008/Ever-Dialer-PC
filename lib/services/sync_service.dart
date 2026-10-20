@@ -399,6 +399,10 @@ class PcSyncService extends ChangeNotifier {
     }
 
     try {
+      Process.runSync('pkill', ['-f', 'bt_sync_daemon.py']);
+    } catch (_) {}
+
+    try {
       Process.start('python3', [validScript]).then((process) {
         _daemonProcess = process;
         debugPrint('[PcSyncService] Started Bluetooth Sync Daemon (PID ${process.pid})');
@@ -569,6 +573,35 @@ class PcSyncService extends ChangeNotifier {
     });
   }
 
+  Future<void> makeCall(String phoneNumber) async {
+    final clean = phoneNumber.trim().replaceAll(RegExp(r'[^\d+]'), '');
+    if (clean.isEmpty) return;
+    debugPrint('[PcSyncService] makeCall requested for $clean (isConnected: $_isConnected)');
+
+    // 1. Send command via Bluetooth sync daemon
+    _sendCommand({
+      'cmd': 'make_call',
+      'number': clean,
+    });
+
+    // 2. Fallback via ADB if Bluetooth is not connected
+    if (!_isConnected) {
+      try {
+        await Process.run('adb', [
+          'shell',
+          'am',
+          'start',
+          '-a',
+          'android.intent.action.CALL',
+          '-d',
+          'tel:$clean',
+        ]);
+      } catch (e) {
+        debugPrint('[PcSyncService] ADB makeCall fallback error: $e');
+      }
+    }
+  }
+
   void sendMessage(String threadId, String text) {
     if (text.trim().isEmpty) return;
     final index = _smsThreads.indexWhere((t) => t.id == threadId);
@@ -601,6 +634,77 @@ class PcSyncService extends ChangeNotifier {
         'phone': thread.phone,
         'text': text.trim(),
       });
+
+      if (!_isConnected) {
+        try {
+          Process.run('adb', [
+            'shell',
+            'am',
+            'start',
+            '-a',
+            'android.intent.action.SENDTO',
+            '-d',
+            'sms:${thread.phone}',
+            '--es',
+            'sms_body',
+            text.trim(),
+          ]);
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> sendSmsToNumber(String phone, String text) async {
+    final cleanPhone = phone.trim();
+    if (cleanPhone.isEmpty || text.trim().isEmpty) return;
+    final index = _smsThreads.indexWhere((t) =>
+        t.phone.replaceAll(RegExp(r'[^\d+]'), '') ==
+        cleanPhone.replaceAll(RegExp(r'[^\d+]'), ''));
+    if (index != -1) {
+      sendMessage(_smsThreads[index].id, text);
+    } else {
+      final newThread = SyncedSmsThread(
+        id: 'thread_${DateTime.now().millisecondsSinceEpoch}',
+        contactName: cleanPhone,
+        phone: cleanPhone,
+        snippet: text.trim(),
+        timestamp: DateTime.now(),
+        unreadCount: 0,
+        messages: [
+          SyncedSmsMessage(
+            id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+            body: text.trim(),
+            timestamp: DateTime.now(),
+            isOutgoing: true,
+          ),
+        ],
+      );
+      _smsThreads.insert(0, newThread);
+      _saveCachedData();
+      notifyListeners();
+
+      _sendCommand({
+        'cmd': 'send_sms',
+        'phone': cleanPhone,
+        'text': text.trim(),
+      });
+
+      if (!_isConnected) {
+        try {
+          await Process.run('adb', [
+            'shell',
+            'am',
+            'start',
+            '-a',
+            'android.intent.action.SENDTO',
+            '-d',
+            'sms:$cleanPhone',
+            '--es',
+            'sms_body',
+            text.trim(),
+          ]);
+        } catch (_) {}
+      }
     }
   }
 

@@ -14,10 +14,25 @@ import select
 import signal
 import time
 import threading
+import fcntl
 
 EVER_DIALER_UUID = "fa87c0d0-afac-11de-8a39-0800200c9a66"
 SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"
 RFCOMM_CHANNEL = 4
+
+LOCK_FILE = "/tmp/everdialer_bt_sync.lock"
+lock_fd = None
+
+def acquire_process_lock():
+    global lock_fd
+    try:
+        lock_fd = open(LOCK_FILE, 'w')
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fd.write(str(os.getpid()))
+        lock_fd.flush()
+        return True
+    except (IOError, BlockingIOError):
+        return False
 
 running = True
 active_client_sock = None
@@ -47,11 +62,12 @@ def handle_socket_connection(client_sock, client_addr):
     global active_client_sock, running
     with sock_lock:
         if active_client_sock is not None:
+            log("New connection incoming; closing previous socket")
             try:
-                client_sock.close()
+                active_client_sock.close()
             except Exception:
                 pass
-            return
+            active_client_sock = None
         active_client_sock = client_sock
 
     dev_name = str(client_addr[0]) if client_addr else "Mobile Device"
@@ -184,24 +200,35 @@ def stdin_listener():
             line = line.strip()
             if not line:
                 continue
+            log(f"PC command received: {line}")
             with sock_lock:
                 if active_client_sock is not None:
                     try:
                         active_client_sock.sendall((line + "\n").encode('utf-8'))
+                        log(f"Successfully transmitted command to phone over Bluetooth")
                     except Exception as e:
                         log(f"Failed to forward stdin command to mobile: {e}")
+                else:
+                    log(f"Cannot forward command: phone is not connected via Bluetooth")
         except Exception as e:
             log(f"Error in stdin_listener: {e}")
             break
 
 def main():
     global running
+    if not acquire_process_lock():
+        log("Another daemon instance is already active. Exiting cleanly.")
+        return 0
+
     emit_event("status", connected=False, state="starting")
 
     profile_manager = start_bluez_profile()
 
-    server_t = threading.Thread(target=rfcomm_server_thread, daemon=True)
-    server_t.start()
+    # If BlueZ profile registered, BlueZ handles channel 4. Only fallback to raw socket if BlueZ unavailable.
+    if profile_manager is None:
+        log("BlueZ profile unavailable, using raw RFCOMM socket on channel 4")
+        server_t = threading.Thread(target=rfcomm_server_thread, daemon=True)
+        server_t.start()
 
     stdin_t = threading.Thread(target=stdin_listener, daemon=True)
     stdin_t.start()
