@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Flutter: Run Linux Desktop",
+      "type": "shell",
+      "command": "flutter run -d linux",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$dart-build"]
+    },
+    {
+      "label": "Flutter: Build Release",
+      "type": "shell",
+      "command": "flutter build linux",
+      "group": "build",
+      "problemMatcher": ["$dart-build"]
+    },
+    {
+      "label": "Flutter: Run Tests",
+      "type": "shell",
+      "command": "flutter test",
+      "group": "test",
+      "problemMatcher": ["$dart-build"]
+    }
+  ]
+}

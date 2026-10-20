@@ -1,0 +1,16 @@
+# Flutter/Dart/Pub related
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+
+# IDE / Editor related
+*.iml
+.idea/
+
+# Rust
+/target/
+rust_backup/target/

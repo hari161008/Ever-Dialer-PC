@@ -1,0 +1,3 @@
+# Cargo configuration for Ever Dialer PC
+[build]
+# Default build flags can be placed here if needed
