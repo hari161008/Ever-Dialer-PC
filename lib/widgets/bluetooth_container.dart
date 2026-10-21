@@ -285,16 +285,24 @@ class BluetoothContainer extends StatelessWidget {
                       Row(
                         children: [
                           Icon(
-                            Icons.graphic_eq,
+                            state.phoneAudioProfileActive
+                                ? Icons.graphic_eq
+                                : Icons.warning_amber_rounded,
                             size: 14,
-                            color: colorScheme.primary,
+                            color: state.phoneAudioProfileActive
+                                ? colorScheme.primary
+                                : colorScheme.error,
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Streaming audio to PC speakers via PipeWire A2DP',
+                            state.phoneAudioProfileActive
+                                ? 'Streaming audio to PC speakers via PipeWire A2DP'
+                                : 'Audio stream profile inactive (Disabled in PipeWire)',
                             style: TextStyle(
                               fontSize: 12,
-                              color: colorScheme.primary,
+                              color: state.phoneAudioProfileActive
+                                  ? colorScheme.primary
+                                  : colorScheme.error,
                               fontWeight: FontWeight.w500,
                             ),
                           ),

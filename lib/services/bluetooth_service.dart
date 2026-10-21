@@ -1,7 +1,32 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class AudioSinkDevice {
+  final String name;
+  final String description;
+  final bool isDefault;
+
+  const AudioSinkDevice({
+    required this.name,
+    required this.description,
+    this.isDefault = false,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AudioSinkDevice &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          description == other.description &&
+          isDefault == other.isDefault;
+
+  @override
+  int get hashCode => name.hashCode ^ description.hashCode ^ isDefault.hashCode;
+}
 
 class BluetoothDevice {
   final String mac;
@@ -25,6 +50,10 @@ class BluetoothState {
   final bool speakerMuted;
   final double speakerVolume;
   final String statusMessage;
+  final String? activeSinkName;
+  final String? activeSinkDescription;
+  final List<AudioSinkDevice> availableSinks;
+  final bool phoneAudioProfileActive;
 
   const BluetoothState({
     this.powered = false,
@@ -36,6 +65,10 @@ class BluetoothState {
     this.speakerMuted = false,
     this.speakerVolume = 0.5,
     this.statusMessage = 'Ready',
+    this.activeSinkName,
+    this.activeSinkDescription,
+    this.availableSinks = const [],
+    this.phoneAudioProfileActive = true,
   });
 
   BluetoothState copyWith({
@@ -49,6 +82,10 @@ class BluetoothState {
     bool? speakerMuted,
     double? speakerVolume,
     String? statusMessage,
+    String? activeSinkName,
+    String? activeSinkDescription,
+    List<AudioSinkDevice>? availableSinks,
+    bool? phoneAudioProfileActive,
   }) {
     return BluetoothState(
       powered: powered ?? this.powered,
@@ -62,6 +99,12 @@ class BluetoothState {
       speakerMuted: speakerMuted ?? this.speakerMuted,
       speakerVolume: speakerVolume ?? this.speakerVolume,
       statusMessage: statusMessage ?? this.statusMessage,
+      activeSinkName: activeSinkName ?? this.activeSinkName,
+      activeSinkDescription:
+          activeSinkDescription ?? this.activeSinkDescription,
+      availableSinks: availableSinks ?? this.availableSinks,
+      phoneAudioProfileActive:
+          phoneAudioProfileActive ?? this.phoneAudioProfileActive,
     );
   }
 }
@@ -165,6 +208,12 @@ class BluetoothService extends ChangeNotifier {
         // 5. Ensure speakers are unmuted
         await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
 
+        // 6. Ensure device is trusted and audio profile is active if already connected
+        if (_state.connectedDevice != null) {
+          await Process.run('bluetoothctl', ['trust', _state.connectedDevice!.mac]);
+          await _ensureBluezProfileActive();
+        }
+
         _state = _state.copyWith(
           powered: true,
           discoverable: true,
@@ -226,6 +275,96 @@ class BluetoothService extends ChangeNotifier {
       );
       _state = _state.copyWith(speakerVolume: clamped);
       notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> setOutputSink(String sinkName) async {
+    try {
+      await Process.run('pactl', ['set-default-sink', sinkName]);
+      await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
+      await refresh();
+    } catch (_) {}
+  }
+
+  Future<void> repairAudioRouting() async {
+    _state = _state.copyWith(statusMessage: 'Repairing PipeWire audio routing...');
+    notifyListeners();
+
+    try {
+      // 1. Unblock bluetooth and power on
+      await Process.run('rfkill', ['unblock', 'bluetooth']);
+      await Process.run('bluetoothctl', ['power', 'on']);
+      await Process.run('bluetoothctl', ['discoverable-timeout', '0']);
+      await Process.run('bluetoothctl', ['discoverable', 'on']);
+      await Process.run('bluetoothctl', ['pairable', 'on']);
+
+      // 2. Trust connected device if any
+      if (_state.connectedDevice != null) {
+        await Process.run('bluetoothctl', ['trust', _state.connectedDevice!.mac]);
+      }
+
+      // 3. Restore bluez profile to audio-gateway
+      await _ensureBluezProfileActive();
+
+      // 4. Ensure Laptop Speakers is default if currently defaulting to silent HDMI
+      try {
+        final defRes = await Process.run('pactl', ['get-default-sink']);
+        final currentDef = (defRes.stdout as String).trim();
+        if (currentDef.toLowerCase().contains('hdmi')) {
+          final sinksRes = await Process.run('pactl', ['-f', 'json', 'list', 'sinks']);
+          if (sinksRes.exitCode == 0) {
+            final sinksList = jsonDecode(sinksRes.stdout as String) as List<dynamic>;
+            for (final s in sinksList) {
+              final sMap = s as Map<String, dynamic>;
+              final name = sMap['name'] as String? ?? '';
+              if (name.toLowerCase().contains('speaker')) {
+                await Process.run('pactl', ['set-default-sink', name]);
+                break;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 5. Unmute default sink and ensure reasonable volume
+      await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
+      if (_state.speakerVolume < 0.2) {
+        await setVolume(0.75);
+      }
+
+      _state = _state.copyWith(
+        statusMessage: 'Audio routing repaired! Speakers active.',
+        phoneAudioProfileActive: true,
+      );
+    } catch (e) {
+      _state = _state.copyWith(statusMessage: 'Error repairing audio: $e');
+    }
+
+    await refresh();
+  }
+
+  Future<void> _ensureBluezProfileActive() async {
+    try {
+      final cardsRes = await Process.run('pactl', ['-f', 'json', 'list', 'cards']);
+      if (cardsRes.exitCode == 0) {
+        final cardsList = jsonDecode(cardsRes.stdout as String) as List<dynamic>;
+        for (final c in cardsList) {
+          final cMap = c as Map<String, dynamic>;
+          final name = cMap['name'] as String? ?? '';
+          if (name.startsWith('bluez_card.')) {
+            final profiles = cMap['profiles'] as Map<String, dynamic>? ?? {};
+            String? targetProfile;
+            if (profiles.containsKey('audio-gateway')) {
+              targetProfile = 'audio-gateway';
+            } else if (profiles.containsKey('a2dp-source')) {
+              targetProfile = 'a2dp-source';
+            }
+            if (targetProfile != null) {
+              await Process.run('pactl', ['set-card-profile', name, targetProfile]);
+            }
+          }
+        }
+      }
     } catch (_) {}
   }
 
@@ -293,6 +432,8 @@ class BluetoothService extends ChangeNotifier {
                   name: name,
                   connected: true,
                 );
+                // Ensure device is trusted so BlueZ doesn't drop incoming audio streams
+                Process.run('bluetoothctl', ['trust', mac]);
                 break;
               }
             }
@@ -313,16 +454,17 @@ class BluetoothService extends ChangeNotifier {
 
   Future<void> _queryAudioState() async {
     try {
+      // 1. Query volume and mute state
       final volResult = await Process.run(
         'wpctl',
         ['get-volume', '@DEFAULT_AUDIO_SINK@'],
       );
+      bool isMuted = _state.speakerMuted;
+      double volume = _state.speakerVolume;
+
       if (volResult.exitCode == 0) {
         final text = (volResult.stdout as String).trim();
-        // e.g. "Volume: 0.40 [MUTED]" or "Volume: 0.75"
-        final isMuted = text.contains('[MUTED]');
-        double volume = _state.speakerVolume;
-
+        isMuted = text.contains('[MUTED]');
         final parts = text.split(RegExp(r'\s+'));
         for (final part in parts) {
           final parsed = double.tryParse(part);
@@ -331,12 +473,82 @@ class BluetoothService extends ChangeNotifier {
             break;
           }
         }
-
-        _state = _state.copyWith(
-          speakerMuted: isMuted,
-          speakerVolume: volume,
-        );
       }
+
+      // 2. Query available sinks
+      String? defaultSinkName;
+      try {
+        final defRes = await Process.run('pactl', ['get-default-sink']);
+        if (defRes.exitCode == 0) {
+          defaultSinkName = (defRes.stdout as String).trim();
+        }
+      } catch (_) {}
+
+      final List<AudioSinkDevice> sinks = [];
+      String? activeSinkDescription;
+
+      try {
+        final sinksRes = await Process.run('pactl', ['-f', 'json', 'list', 'sinks']);
+        if (sinksRes.exitCode == 0) {
+          final sinksList = jsonDecode(sinksRes.stdout as String) as List<dynamic>;
+          for (final s in sinksList) {
+            final sMap = s as Map<String, dynamic>;
+            final name = sMap['name'] as String? ?? '';
+            final desc = sMap['description'] as String? ?? name;
+            final isDef = name == defaultSinkName;
+            if (isDef) {
+              activeSinkDescription = desc;
+            }
+            sinks.add(AudioSinkDevice(
+              name: name,
+              description: desc,
+              isDefault: isDef,
+            ));
+          }
+        }
+      } catch (_) {}
+
+      // 3. Check if phone's bluez card profile is active (not 'off')
+      bool phoneProfileActive = true;
+      try {
+        final cardsRes = await Process.run('pactl', ['-f', 'json', 'list', 'cards']);
+        if (cardsRes.exitCode == 0) {
+          final cardsList = jsonDecode(cardsRes.stdout as String) as List<dynamic>;
+          for (final c in cardsList) {
+            final cMap = c as Map<String, dynamic>;
+            final name = cMap['name'] as String? ?? '';
+            if (name.startsWith('bluez_card.')) {
+              final activeProfile = cMap['active_profile'] as String? ?? '';
+              if (activeProfile == 'off') {
+                phoneProfileActive = false;
+                // Auto-restore audio-gateway profile if speaker mode is enabled
+                if (_state.speakerModeEnabled && _state.connectedDevice != null) {
+                  final profiles = cMap['profiles'] as Map<String, dynamic>? ?? {};
+                  String? targetProfile;
+                  if (profiles.containsKey('audio-gateway')) {
+                    targetProfile = 'audio-gateway';
+                  } else if (profiles.containsKey('a2dp-source')) {
+                    targetProfile = 'a2dp-source';
+                  }
+                  if (targetProfile != null) {
+                    await Process.run('pactl', ['set-card-profile', name, targetProfile]);
+                    phoneProfileActive = true;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      _state = _state.copyWith(
+        speakerMuted: isMuted,
+        speakerVolume: volume,
+        activeSinkName: defaultSinkName,
+        activeSinkDescription: activeSinkDescription,
+        availableSinks: sinks,
+        phoneAudioProfileActive: phoneProfileActive,
+      );
     } catch (_) {}
   }
 }

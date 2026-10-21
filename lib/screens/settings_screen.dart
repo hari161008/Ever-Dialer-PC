@@ -320,6 +320,8 @@ class SettingsScreen extends StatelessWidget {
                   state: state,
                   onUnmute: () => bluetoothService.unmuteSpeaker(),
                   onVolumeChanged: (vol) => bluetoothService.setVolume(vol),
+                  onRepairAudio: () => bluetoothService.repairAudioRouting(),
+                  onSelectSink: (sink) => bluetoothService.setOutputSink(sink),
                 ),
 
                 const SizedBox(height: 18),
