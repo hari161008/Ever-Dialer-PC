@@ -820,6 +820,7 @@ class PcSyncService extends ChangeNotifier {
     if (_daemonProcess != null) {
       try {
         _daemonProcess?.stdin.writeln(jsonEncode(cmd));
+        _daemonProcess?.stdin.flush();
       } catch (e) {
         debugPrint('[PcSyncService] Error sending command to daemon: $e');
       }

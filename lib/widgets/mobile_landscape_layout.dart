@@ -691,6 +691,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       return true;
     }).toList();
 
+    final groupedLogs = _groupLogsByDate(filteredLogs);
+
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
@@ -706,10 +708,19 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 ),
               ),
               const Spacer(),
-              Text(
-                '${filteredLogs.length} calls',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.outline,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  '${filteredLogs.length} calls',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
                 ),
               ),
             ],
@@ -724,6 +735,16 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   decoration: InputDecoration(
                     hintText: 'Search call logs...',
                     prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _callSearchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () {
+                              setState(() {
+                                _callSearchQuery = '';
+                              });
+                            },
+                          )
+                        : null,
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 14,
@@ -769,168 +790,269 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           Expanded(
             child: filteredLogs.isEmpty
                 ? Center(
-                    child: Text(
-                      'No call logs match filter.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.outline,
-                      ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.phone_missed_outlined, size: 48, color: colorScheme.outline),
+                        const SizedBox(height: 12),
+                        Text(
+                          'No call logs match filter.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.outline,
+                          ),
+                        ),
+                      ],
                     ),
                   )
-                : ListView.separated(
-                    itemCount: filteredLogs.length,
-                    separatorBuilder: (context, index) => Divider(
-                      height: 1,
-                      indent: 72,
-                      endIndent: 16,
-                      color: colorScheme.outlineVariant.withValues(alpha: 0.2),
-                    ),
-                    itemBuilder: (context, index) {
-                      final log = filteredLogs[index];
-                      final isMissed = log.type == CallType.missed;
-                      final hasContactName = log.name.isNotEmpty && log.name != log.number;
-                      final displayTitle = hasContactName
-                          ? log.name
-                          : (log.number.isNotEmpty ? log.number : 'Unknown');
-
-                      IconData typeIcon;
-                      Color typeColor;
-
-                      switch (log.type) {
-                        case CallType.missed:
-                          typeIcon = Icons.call_missed;
-                          typeColor = colorScheme.error;
-                          break;
-                        case CallType.incoming:
-                          typeIcon = Icons.call_received;
-                          typeColor = colorScheme.onSurfaceVariant;
-                          break;
-                        case CallType.outgoing:
-                          typeIcon = Icons.call_made;
-                          typeColor = colorScheme.onSurfaceVariant;
-                          break;
-                      }
-
-                      final durationFormatted = _formatCallDuration(log.duration);
-
-                      return GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onSecondaryTapDown: (details) => _showCallLogContextMenu(context, details.globalPosition, log),
-                        onLongPressStart: (details) => _showCallLogContextMenu(context, details.globalPosition, log),
-                        child: ListTile(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 4,
-                          ),
-                          leading: CircleAvatar(
-                            radius: 21,
-                            backgroundColor: colorScheme.surfaceContainerHighest,
-                            child: hasContactName && log.name.trim().isNotEmpty
-                                ? Text(
-                                    log.name.trim()[0].toUpperCase(),
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                      color: colorScheme.onSurface,
-                                    ),
-                                  )
-                                : Icon(
-                                    Icons.person,
-                                    size: 22,
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                          ),
-                          title: Text(
-                            displayTitle,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: isMissed ? colorScheme.error : colorScheme.onSurface,
+                : ListView.builder(
+                    itemCount: groupedLogs.length,
+                    itemBuilder: (context, groupIndex) {
+                      final dateHeader = groupedLogs.keys.elementAt(groupIndex);
+                      final logsInGroup = groupedLogs[dateHeader]!;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
+                            child: Text(
+                              dateHeader,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                                fontSize: 14,
+                              ),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          subtitle: Row(
-                            children: [
-                              Icon(typeIcon, color: typeColor, size: 14),
-                              const SizedBox(width: 4),
-                              Text(
-                                _formatCallDate(log.timestamp),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                                width: 1,
                               ),
-                              if (!isMissed && durationFormatted.isNotEmpty) ...[
-                                Text(
-                                  ' • $durationFormatted',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                              if (isMissed) ...[
-                                Text(
-                                  ' • Missed',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.error.withValues(alpha: 0.8),
-                                  ),
-                                ),
-                              ],
-                              if (log.simSlot > 0) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 5,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: colorScheme.surfaceContainerHighest,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    'SIM ${log.simSlot}',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      color: colorScheme.onSurfaceVariant,
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: Column(
+                              children: [
+                                for (int i = 0; i < logsInGroup.length; i++) ...[
+                                  if (i > 0)
+                                    Divider(
+                                      height: 1,
+                                      thickness: 0.5,
+                                      indent: 72,
+                                      endIndent: 16,
+                                      color: colorScheme.outlineVariant.withValues(alpha: 0.25),
                                     ),
-                                  ),
-                                ),
+                                  _buildCallLogTile(logsInGroup[i]),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.call_rounded, size: 22),
-                            color: colorScheme.primary,
-                            tooltip: 'Call $displayTitle',
-                            onPressed: () {
-                              widget.syncService.makeCall(log.number);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Placing call to $displayTitle (${log.number})...'),
-                                  duration: const Duration(seconds: 2),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            },
-                          ),
-                          onTap: () {
-                            widget.syncService.makeCall(log.number);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Placing call to $displayTitle (${log.number})...'),
-                                duration: const Duration(seconds: 2),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
-                        ),
+                          const SizedBox(height: 16),
+                        ],
                       );
                     },
                   ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCallLogTile(SyncedCallLog log) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isMissed = log.type == CallType.missed;
+    final hasContactName = log.name.isNotEmpty && log.name != log.number;
+    final displayTitle = hasContactName
+        ? log.name
+        : (log.number.isNotEmpty ? log.number : 'Unknown');
+
+    IconData typeIcon;
+    Color iconColor;
+    Color containerColor;
+
+    switch (log.type) {
+      case CallType.missed:
+        typeIcon = Icons.call_missed;
+        iconColor = colorScheme.error;
+        containerColor = colorScheme.errorContainer;
+        break;
+      case CallType.incoming:
+        typeIcon = Icons.call_received;
+        iconColor = colorScheme.onPrimaryContainer;
+        containerColor = colorScheme.primaryContainer;
+        break;
+      case CallType.outgoing:
+        typeIcon = Icons.call_made;
+        iconColor = colorScheme.onPrimaryContainer;
+        containerColor = colorScheme.primaryContainer;
+        break;
+    }
+
+    final durationFormatted = _formatCallDuration(log.duration);
+    final timeStr = _formatTime(log.timestamp);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapDown: (details) => _showCallLogContextMenu(context, details.globalPosition, log),
+      onLongPressStart: (details) => _showCallLogContextMenu(context, details.globalPosition, log),
+      child: ListTile(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 6,
+        ),
+        leading: CircleAvatar(
+          radius: 22,
+          backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
+          child: hasContactName && log.name.trim().isNotEmpty
+              ? Text(
+                  log.name.trim()[0].toUpperCase(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: colorScheme.onSurface,
+                  ),
+                )
+              : Icon(
+                  Icons.person,
+                  size: 22,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+        ),
+        title: Text(
+          displayTitle,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+            color: isMissed ? colorScheme.error : colorScheme.onSurface,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 2.0),
+          child: Row(
+            children: [
+              if (hasContactName && log.number.isNotEmpty) ...[
+                Text(
+                  log.number,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              if (log.simSlot > 0) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1.5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: log.simSlot == 1
+                        ? const Color(0xFF00897B).withValues(alpha: 0.18)
+                        : const Color(0xFFE65100).withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: log.simSlot == 1
+                          ? const Color(0xFF00897B).withValues(alpha: 0.4)
+                          : const Color(0xFFE65100).withValues(alpha: 0.4),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Text(
+                    'SIM ${log.simSlot}',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.bold,
+                      color: log.simSlot == 1
+                          ? const Color(0xFF00897B)
+                          : const Color(0xFFE65100),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  timeStr,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: isMissed ? colorScheme.error : colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (!isMissed && durationFormatted.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    durationFormatted,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.outline,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+                if (isMissed) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Missed',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.error.withValues(alpha: 0.85),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(width: 12),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: containerColor,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                icon: Icon(typeIcon, size: 18, color: iconColor),
+                tooltip: 'Call $displayTitle',
+                onPressed: () {
+                  widget.syncService.makeCall(log.number);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Placing call to $displayTitle (${log.number})...'),
+                      duration: const Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+        onTap: () {
+          widget.syncService.makeCall(log.number);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Placing call to $displayTitle (${log.number})...'),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
       ),
     );
   }
@@ -950,6 +1072,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           c.phone.toLowerCase().contains(q);
     }).toList();
 
+    final groupedContacts = _groupContactsByLetter(filtered);
+
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
@@ -965,10 +1089,19 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   color: colorScheme.onSurface,
                 ),
               ),
-              Text(
-                '${allContacts.length} total',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colorScheme.outline,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  '${allContacts.length} contacts',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
                 ),
               ),
             ],
@@ -979,6 +1112,16 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             decoration: InputDecoration(
               hintText: 'Search contacts...',
               prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _contactSearchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        setState(() {
+                          _contactSearchQuery = '';
+                        });
+                      },
+                    )
+                  : null,
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 14,
@@ -1028,100 +1171,170 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             )
           else
             Expanded(
-              child: ListView.separated(
-                itemCount: filtered.length,
-                separatorBuilder: (context, index) => Divider(
-                  height: 1,
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-                ),
-                itemBuilder: (context, index) {
-                  final contact = filtered[index];
-                  return GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onSecondaryTapDown: (details) => _showContactContextMenu(context, details.globalPosition, contact),
-                    onLongPressStart: (details) => _showContactContextMenu(context, details.globalPosition, contact),
-                    child: ListTile(
-                      onTap: () {
-                        widget.syncService.makeCall(contact.phone);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Placing call to ${contact.name} (${contact.phone})...'),
-                            duration: const Duration(seconds: 2),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        );
-                      },
-                      leading: CircleAvatar(
-                        backgroundColor: colorScheme.primaryContainer,
+              child: ListView.builder(
+                itemCount: groupedContacts.length,
+                itemBuilder: (context, groupIndex) {
+                  final letter = groupedContacts.keys.elementAt(groupIndex);
+                  final contactsInGroup = groupedContacts[letter]!;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
                         child: Text(
-                          contact.initials,
-                          style: TextStyle(
+                          letter,
+                          style: theme.textTheme.labelLarge?.copyWith(
                             fontWeight: FontWeight.bold,
-                            color: colorScheme.onPrimaryContainer,
+                            color: colorScheme.primary,
+                            fontSize: 16,
                           ),
                         ),
                       ),
-                      title: Text(
-                        contact.name,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      subtitle: Text(
-                        '${contact.phone} • ${contact.account ?? "Default"}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: Icon(
-                              contact.isFavorite
-                                  ? Icons.star
-                                  : Icons.star_border,
-                              color: contact.isFavorite
-                                  ? Colors.amber
-                                  : colorScheme.outline,
-                              size: 20,
-                            ),
-                            tooltip: contact.isFavorite
-                                ? 'Unmark favorite'
-                                : 'Mark favorite',
-                            onPressed: () {
-                              widget.syncService.toggleFavorite(contact.id);
-                            },
+                      Container(
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                            width: 1,
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                            tooltip: 'SMS',
-                            onPressed: () {
-                              _openSmsForNumber(contact.phone);
-                            },
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.call_outlined, size: 20),
-                            tooltip: 'Call',
-                            onPressed: () {
-                              widget.syncService.makeCall(contact.phone);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Placing call to ${contact.name} (${contact.phone})...'),
-                                  duration: const Duration(seconds: 2),
-                                  behavior: SnackBarBehavior.floating,
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          children: [
+                            for (int i = 0; i < contactsInGroup.length; i++) ...[
+                              if (i > 0)
+                                Divider(
+                                  height: 1,
+                                  thickness: 0.5,
+                                  indent: 72,
+                                  endIndent: 16,
+                                  color: colorScheme.outlineVariant.withValues(alpha: 0.25),
                                 ),
-                              );
-                            },
-                          ),
-                        ],
+                              _buildContactTile(contactsInGroup[i]),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                    ],
                   );
                 },
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildContactTile(SyncedContact contact) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapDown: (details) => _showContactContextMenu(context, details.globalPosition, contact),
+      onLongPressStart: (details) => _showContactContextMenu(context, details.globalPosition, contact),
+      child: ListTile(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 4,
+        ),
+        onTap: () {
+          widget.syncService.makeCall(contact.phone);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Placing call to ${contact.name} (${contact.phone})...'),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
+        leading: CircleAvatar(
+          radius: 22,
+          backgroundColor: colorScheme.primaryContainer,
+          child: Text(
+            contact.initials,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+              color: colorScheme.onPrimaryContainer,
+            ),
+          ),
+        ),
+        title: Text(
+          contact.name,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+            color: colorScheme.onSurface,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 2.0),
+          child: Text(
+            contact.account != null && contact.account!.isNotEmpty
+                ? '${contact.phone} • ${contact.account}'
+                : contact.phone,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(
+                contact.isFavorite ? Icons.star : Icons.star_border,
+                color: contact.isFavorite ? Colors.amber : colorScheme.outline,
+                size: 20,
+              ),
+              tooltip: contact.isFavorite ? 'Unmark favorite' : 'Mark favorite',
+              onPressed: () {
+                widget.syncService.toggleFavorite(contact.id);
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.chat_bubble_outline, size: 18),
+              tooltip: 'SMS',
+              onPressed: () {
+                _openSmsForNumber(contact.phone);
+              },
+            ),
+            const SizedBox(width: 4),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.call, size: 18, color: colorScheme.primary),
+                tooltip: 'Call ${contact.name}',
+                onPressed: () {
+                  widget.syncService.makeCall(contact.phone);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Placing call to ${contact.name} (${contact.phone})...'),
+                      duration: const Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1861,28 +2074,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     }
   }
 
-  String _formatCallDate(DateTime dt) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final itemDate = DateTime(dt.year, dt.month, dt.day);
-    final diffDays = today.difference(itemDate).inDays;
-    final timeStr = _formatTime(dt);
-
-    if (diffDays == 0) {
-      return 'Today, $timeStr';
-    } else if (diffDays == 1) {
-      return 'Yesterday, $timeStr';
-    } else if (diffDays < 7) {
-      const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return '${weekdays[dt.weekday - 1]}, $timeStr';
-    } else {
-      const months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ];
-      return '${months[dt.month - 1]} ${dt.day}, $timeStr';
-    }
-  }
 
   String _formatCallDuration(Duration duration) {
     if (duration == Duration.zero) return '';
@@ -1920,6 +2111,61 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
 
   String _formatTimestamp(DateTime dt) {
     return _formatConversationDate(dt);
+  }
+
+  String _formatCallDateHeader(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final itemDate = DateTime(dt.year, dt.month, dt.day);
+    final diffDays = today.difference(itemDate).inDays;
+
+    if (diffDays == 0) {
+      return 'Today';
+    } else if (diffDays == 1) {
+      return 'Yesterday';
+    } else {
+      const months = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      if (dt.year == now.year) {
+        return '${months[dt.month - 1]} ${dt.day}';
+      } else {
+        return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+      }
+    }
+  }
+
+  Map<String, List<SyncedCallLog>> _groupLogsByDate(List<SyncedCallLog> logs) {
+    final map = <String, List<SyncedCallLog>>{};
+    for (final log in logs) {
+      final header = _formatCallDateHeader(log.timestamp);
+      map.putIfAbsent(header, () => []).add(log);
+    }
+    return map;
+  }
+
+  Map<String, List<SyncedContact>> _groupContactsByLetter(List<SyncedContact> contacts) {
+    final map = <String, List<SyncedContact>>{};
+    for (final contact in contacts) {
+      final trimmed = contact.name.trim();
+      final firstChar = trimmed.isNotEmpty ? trimmed[0].toUpperCase() : '#';
+      final letter = RegExp(r'[A-Z]').hasMatch(firstChar) ? firstChar : '#';
+      map.putIfAbsent(letter, () => []).add(contact);
+    }
+
+    final sortedKeys = map.keys.toList()
+      ..sort((a, b) {
+        if (a == '#') return 1;
+        if (b == '#') return -1;
+        return a.compareTo(b);
+      });
+
+    final sortedMap = <String, List<SyncedContact>>{};
+    for (final key in sortedKeys) {
+      sortedMap[key] = map[key]!;
+    }
+    return sortedMap;
   }
 
   // ═════════════════════════════════════════════════════════════════════════
