@@ -730,6 +730,92 @@ class PcSyncService extends ChangeNotifier {
     }
   }
 
+  void deleteCallLog(String id) {
+    final index = _callLogs.indexWhere((l) => l.id == id);
+    if (index != -1) {
+      final removed = _callLogs.removeAt(index);
+      _saveCachedData();
+      notifyListeners();
+
+      _sendCommand({
+        'cmd': 'delete_call_log',
+        'id': id,
+        'number': removed.number,
+      });
+    }
+  }
+
+  void deleteSmsThread(String threadId) {
+    final index = _smsThreads.indexWhere((t) => t.id == threadId);
+    if (index != -1) {
+      final removed = _smsThreads.removeAt(index);
+      _saveCachedData();
+      notifyListeners();
+
+      _sendCommand({
+        'cmd': 'delete_sms_thread',
+        'threadId': threadId,
+        'phone': removed.phone,
+      });
+    }
+  }
+
+  void toggleSmsRead(String threadId) {
+    final index = _smsThreads.indexWhere((t) => t.id == threadId);
+    if (index != -1) {
+      final thread = _smsThreads[index];
+      final newUnread = thread.unreadCount > 0 ? 0 : 1;
+      _smsThreads[index] = SyncedSmsThread(
+        id: thread.id,
+        contactName: thread.contactName,
+        phone: thread.phone,
+        snippet: thread.snippet,
+        timestamp: thread.timestamp,
+        unreadCount: newUnread,
+        messages: thread.messages,
+      );
+      _saveCachedData();
+      notifyListeners();
+
+      _sendCommand({
+        'cmd': 'mark_sms_read',
+        'threadId': threadId,
+        'read': newUnread == 0,
+      });
+    }
+  }
+
+  void editNote(String id, String title, String content) {
+    final index = _notes.indexWhere((n) => n.id == id);
+    if (index != -1) {
+      _notes[index] = SyncedNote(
+        id: id,
+        title: title.trim().isEmpty ? 'Untitled Note' : title.trim(),
+        content: content.trim(),
+        timestamp: DateTime.now(),
+      );
+      _saveCachedData();
+      notifyListeners();
+
+      _sendCommand({
+        'cmd': 'edit_note',
+        'id': id,
+        'title': title.trim(),
+        'content': content.trim(),
+      });
+    }
+  }
+
+  void blockNumber(String number) {
+    final clean = number.trim().replaceAll(RegExp(r'[^\d+]'), '');
+    if (clean.isEmpty) return;
+
+    _sendCommand({
+      'cmd': 'block_number',
+      'number': clean,
+    });
+  }
+
   void _sendCommand(Map<String, dynamic> cmd) {
     if (_daemonProcess != null) {
       try {

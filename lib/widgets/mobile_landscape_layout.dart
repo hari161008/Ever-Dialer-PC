@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/sync_service.dart';
 
 class MobileLandscapeLayout extends StatefulWidget {
@@ -181,7 +182,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   },
                 ),
               ),
-              if (_selectedIndex != 4)
+              if (_selectedIndex == 1)
                 Positioned(
                   right: 24,
                   bottom: 24,
@@ -582,78 +583,83 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 itemCount: favourites.length,
                 itemBuilder: (context, index) {
                   final contact = favourites[index];
-                  return Card(
-                    elevation: 0,
-                    color: colorScheme.surfaceContainer,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      side: BorderSide(
-                        color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onSecondaryTapDown: (details) => _showFavouriteContextMenu(context, details.globalPosition, contact),
+                    onLongPressStart: (details) => _showFavouriteContextMenu(context, details.globalPosition, contact),
+                    child: Card(
+                      elevation: 0,
+                      color: colorScheme.surfaceContainer,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        side: BorderSide(
+                          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                        ),
                       ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircleAvatar(
-                            radius: 22,
-                            backgroundColor: colorScheme.primaryContainer,
-                            child: Text(
-                              contact.initials,
-                              style: TextStyle(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircleAvatar(
+                              radius: 22,
+                              backgroundColor: colorScheme.primaryContainer,
+                              child: Text(
+                                contact.initials,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: colorScheme.onPrimaryContainer,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              contact.name,
+                              style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: colorScheme.onPrimaryContainer,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            contact.name,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            contact.phone,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.call, size: 18),
-                                color: colorScheme.primary,
-                                tooltip: 'Call ${contact.name}',
-                                onPressed: () {
-                                  widget.syncService.makeCall(contact.phone);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Calling ${contact.name} (${contact.phone})...'),
-                                      duration: const Duration(seconds: 2),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                },
+                            Text(
+                              contact.phone,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                                color: colorScheme.primary,
-                                tooltip: 'SMS ${contact.name}',
-                                onPressed: () {
-                                  _openSmsForNumber(contact.phone);
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.call, size: 18),
+                                  color: colorScheme.primary,
+                                  tooltip: 'Call ${contact.name}',
+                                  onPressed: () {
+                                    widget.syncService.makeCall(contact.phone);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Calling ${contact.name} (${contact.phone})...'),
+                                        duration: const Duration(seconds: 2),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                                  color: colorScheme.primary,
+                                  tooltip: 'SMS ${contact.name}',
+                                  onPressed: () {
+                                    _openSmsForNumber(contact.phone);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -806,95 +812,110 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
 
                       final durationFormatted = _formatCallDuration(log.duration);
 
-                      return ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 4,
-                        ),
-                        leading: CircleAvatar(
-                          radius: 21,
-                          backgroundColor: colorScheme.surfaceContainerHighest,
-                          child: hasContactName && log.name.trim().isNotEmpty
-                              ? Text(
-                                  log.name.trim()[0].toUpperCase(),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                    color: colorScheme.onSurface,
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.person,
-                                  size: 22,
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
-                        ),
-                        title: Text(
-                          displayTitle,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: isMissed ? colorScheme.error : colorScheme.onSurface,
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onSecondaryTapDown: (details) => _showCallLogContextMenu(context, details.globalPosition, log),
+                        onLongPressStart: (details) => _showCallLogContextMenu(context, details.globalPosition, log),
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Row(
-                          children: [
-                            Icon(typeIcon, color: typeColor, size: 14),
-                            const SizedBox(width: 4),
-                            Text(
-                              _formatCallDate(log.timestamp),
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
+                          leading: CircleAvatar(
+                            radius: 21,
+                            backgroundColor: colorScheme.surfaceContainerHighest,
+                            child: hasContactName && log.name.trim().isNotEmpty
+                                ? Text(
+                                    log.name.trim()[0].toUpperCase(),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: colorScheme.onSurface,
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.person,
+                                    size: 22,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                          ),
+                          title: Text(
+                            displayTitle,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: isMissed ? colorScheme.error : colorScheme.onSurface,
                             ),
-                            if (!isMissed && durationFormatted.isNotEmpty) ...[
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Row(
+                            children: [
+                              Icon(typeIcon, color: typeColor, size: 14),
+                              const SizedBox(width: 4),
                               Text(
-                                ' • $durationFormatted',
+                                _formatCallDate(log.timestamp),
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: colorScheme.onSurfaceVariant,
                                 ),
                               ),
-                            ],
-                            if (isMissed) ...[
-                              Text(
-                                ' • Missed',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.error.withValues(alpha: 0.8),
-                                ),
-                              ),
-                            ],
-                            if (log.simSlot > 0) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  'SIM ${log.simSlot}',
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w600,
+                              if (!isMissed && durationFormatted.isNotEmpty) ...[
+                                Text(
+                                  ' • $durationFormatted',
+                                  style: theme.textTheme.bodySmall?.copyWith(
                                     color: colorScheme.onSurfaceVariant,
                                   ),
                                 ),
-                              ),
+                              ],
+                              if (isMissed) ...[
+                                Text(
+                                  ' • Missed',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.error.withValues(alpha: 0.8),
+                                  ),
+                                ),
+                              ],
+                              if (log.simSlot > 0) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'SIM ${log.simSlot}',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w600,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.call_rounded, size: 22),
-                          color: colorScheme.primary,
-                          tooltip: 'Call $displayTitle',
-                          onPressed: () {
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.call_rounded, size: 22),
+                            color: colorScheme.primary,
+                            tooltip: 'Call $displayTitle',
+                            onPressed: () {
+                              widget.syncService.makeCall(log.number);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Placing call to $displayTitle (${log.number})...'),
+                                  duration: const Duration(seconds: 2),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                          ),
+                          onTap: () {
                             widget.syncService.makeCall(log.number);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -905,16 +926,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                             );
                           },
                         ),
-                        onTap: () {
-                          widget.syncService.makeCall(log.number);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Placing call to $displayTitle (${log.number})...'),
-                              duration: const Duration(seconds: 2),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
                       );
                     },
                   ),
@@ -1025,81 +1036,86 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 ),
                 itemBuilder: (context, index) {
                   final contact = filtered[index];
-                  return ListTile(
-                    onTap: () {
-                      widget.syncService.makeCall(contact.phone);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Placing call to ${contact.name} (${contact.phone})...'),
-                          duration: const Duration(seconds: 2),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                    leading: CircleAvatar(
-                      backgroundColor: colorScheme.primaryContainer,
-                      child: Text(
-                        contact.initials,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: colorScheme.onPrimaryContainer,
-                        ),
-                      ),
-                    ),
-                    title: Text(
-                      contact.name,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${contact.phone} • ${contact.account ?? "Default"}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(
-                            contact.isFavorite
-                                ? Icons.star
-                                : Icons.star_border,
-                            color: contact.isFavorite
-                                ? Colors.amber
-                                : colorScheme.outline,
-                            size: 20,
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onSecondaryTapDown: (details) => _showContactContextMenu(context, details.globalPosition, contact),
+                    onLongPressStart: (details) => _showContactContextMenu(context, details.globalPosition, contact),
+                    child: ListTile(
+                      onTap: () {
+                        widget.syncService.makeCall(contact.phone);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Placing call to ${contact.name} (${contact.phone})...'),
+                            duration: const Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
                           ),
-                          tooltip: contact.isFavorite
-                              ? 'Unmark favorite'
-                              : 'Mark favorite',
-                          onPressed: () {
-                            widget.syncService.toggleFavorite(contact.id);
-                          },
+                        );
+                      },
+                      leading: CircleAvatar(
+                        backgroundColor: colorScheme.primaryContainer,
+                        child: Text(
+                          contact.initials,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onPrimaryContainer,
+                          ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                          tooltip: 'SMS',
-                          onPressed: () {
-                            _openSmsForNumber(contact.phone);
-                          },
+                      ),
+                      title: Text(
+                        contact.name,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.call_outlined, size: 20),
-                          tooltip: 'Call',
-                          onPressed: () {
-                            widget.syncService.makeCall(contact.phone);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Placing call to ${contact.name} (${contact.phone})...'),
-                                duration: const Duration(seconds: 2),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
+                      ),
+                      subtitle: Text(
+                        '${contact.phone} • ${contact.account ?? "Default"}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
                         ),
-                      ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              contact.isFavorite
+                                  ? Icons.star
+                                  : Icons.star_border,
+                              color: contact.isFavorite
+                                  ? Colors.amber
+                                  : colorScheme.outline,
+                              size: 20,
+                            ),
+                            tooltip: contact.isFavorite
+                                ? 'Unmark favorite'
+                                : 'Mark favorite',
+                            onPressed: () {
+                              widget.syncService.toggleFavorite(contact.id);
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                            tooltip: 'SMS',
+                            onPressed: () {
+                              _openSmsForNumber(contact.phone);
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.call_outlined, size: 20),
+                            tooltip: 'Call',
+                            onPressed: () {
+                              widget.syncService.makeCall(contact.phone);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Placing call to ${contact.name} (${contact.phone})...'),
+                                  duration: const Duration(seconds: 2),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -1215,7 +1231,11 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                             ? colorScheme.surfaceContainerHigh.withValues(alpha: 0.5)
                             : Colors.transparent);
 
-                    return InkWell(
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onSecondaryTapDown: (details) => _showSmsThreadContextMenu(context, details.globalPosition, thread),
+                      onLongPressStart: (details) => _showSmsThreadContextMenu(context, details.globalPosition, thread),
+                      child: InkWell(
                       borderRadius: BorderRadius.circular(16),
                       onTap: () {
                         setState(() {
@@ -1326,8 +1346,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           ],
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  );
+                },
                 ),
               ),
             ],
@@ -1694,54 +1715,59 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     separatorBuilder: (context, index) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final note = filtered[index];
-                      return Card(
-                        elevation: 0,
-                        color: colorScheme.surfaceContainer,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          side: BorderSide(
-                            color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onSecondaryTapDown: (details) => _showNoteContextMenu(context, details.globalPosition, note),
+                        onLongPressStart: (details) => _showNoteContextMenu(context, details.globalPosition, note),
+                        child: Card(
+                          elevation: 0,
+                          color: colorScheme.surfaceContainer,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            side: BorderSide(
+                              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                            ),
                           ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    note.title,
-                                    style: theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      note.title,
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline, size: 18),
-                                    tooltip: 'Delete note',
-                                    visualDensity: VisualDensity.compact,
-                                    onPressed: () {
-                                      widget.syncService.deleteNote(note.id);
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                note.content,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, size: 18),
+                                      tooltip: 'Delete note',
+                                      visualDensity: VisualDensity.compact,
+                                      onPressed: () {
+                                        _confirmDeleteNote(context, note);
+                                      },
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                _formatTimestamp(note.timestamp),
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: colorScheme.outline,
+                                const SizedBox(height: 6),
+                                Text(
+                                  note.content,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 10),
+                                Text(
+                                  _formatTimestamp(note.timestamp),
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: colorScheme.outline,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -1894,5 +1920,659 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
 
   String _formatTimestamp(DateTime dt) {
     return _formatConversationDate(dt);
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // Context Menu Helpers & Actions
+  // ═════════════════════════════════════════════════════════════════════════
+
+  Future<void> _showItemContextMenu({
+    required BuildContext context,
+    required Offset globalPosition,
+    required List<PopupMenuEntry<String>> items,
+    required void Function(String action) onSelected,
+  }) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(globalPosition, globalPosition),
+      Offset.zero & overlay.size,
+    );
+    final action = await showMenu<String>(
+      context: context,
+      position: position,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 6,
+      items: items,
+    );
+    if (action != null) {
+      onSelected(action);
+    }
+  }
+
+  PopupMenuItem<String> _buildMenuItem({
+    required String value,
+    required IconData icon,
+    required String label,
+    Color? iconColor,
+    Color? textColor,
+    bool isDestructive = false,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 40,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 19,
+            color: isDestructive ? Colors.redAccent : iconColor,
+          ),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: TextStyle(
+              color: isDestructive ? Colors.redAccent : textColor,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFavouriteContextMenu(BuildContext context, Offset position, SyncedContact contact) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    _showItemContextMenu(
+      context: context,
+      globalPosition: position,
+      items: [
+        _buildMenuItem(
+          value: 'call',
+          icon: Icons.call,
+          label: 'Call',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'sms',
+          icon: Icons.chat_bubble_outline,
+          label: 'Send SMS',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'copy_number',
+          icon: Icons.copy,
+          label: 'Copy Number',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          value: 'remove_favorite',
+          icon: Icons.star_border,
+          label: 'Remove Favorite',
+          iconColor: Colors.amber,
+        ),
+      ],
+      onSelected: (action) {
+        switch (action) {
+          case 'call':
+            widget.syncService.makeCall(contact.phone);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Placing call to ${contact.name} (${contact.phone})...'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'sms':
+            _openSmsForNumber(contact.phone);
+            break;
+          case 'copy_number':
+            Clipboard.setData(ClipboardData(text: contact.phone));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Copied ${contact.phone} to clipboard'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'remove_favorite':
+            widget.syncService.toggleFavorite(contact.id);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Removed ${contact.name} from favourites'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+        }
+      },
+    );
+  }
+
+  void _showCallLogContextMenu(BuildContext context, Offset position, SyncedCallLog log) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final displayName = log.name.isNotEmpty && log.name != log.number ? log.name : log.number;
+    final matchingContact = widget.syncService.contacts.cast<SyncedContact?>().firstWhere(
+      (c) => c != null && c.phone.replaceAll(RegExp(r'[^\d+]'), '') == log.number.replaceAll(RegExp(r'[^\d+]'), ''),
+      orElse: () => null,
+    );
+
+    _showItemContextMenu(
+      context: context,
+      globalPosition: position,
+      items: [
+        _buildMenuItem(
+          value: 'call',
+          icon: Icons.call,
+          label: 'Call Back',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'sms',
+          icon: Icons.chat_bubble_outline,
+          label: 'Send SMS',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'copy_number',
+          icon: Icons.copy,
+          label: 'Copy Number',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        if (matchingContact != null)
+          _buildMenuItem(
+            value: 'toggle_favorite',
+            icon: matchingContact.isFavorite ? Icons.star : Icons.star_border,
+            label: matchingContact.isFavorite ? 'Remove Favorite' : 'Add to Favorites',
+            iconColor: Colors.amber,
+          ),
+        _buildMenuItem(
+          value: 'share',
+          icon: Icons.share_outlined,
+          label: 'Share',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        _buildMenuItem(
+          value: 'block_number',
+          icon: Icons.block,
+          label: 'Block Number',
+          iconColor: colorScheme.error,
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          value: 'delete_call_log',
+          icon: Icons.delete_outline,
+          label: 'Delete Call Log',
+          isDestructive: true,
+        ),
+      ],
+      onSelected: (action) {
+        switch (action) {
+          case 'call':
+            widget.syncService.makeCall(log.number);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Placing call to $displayName (${log.number})...'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'sms':
+            _openSmsForNumber(log.number);
+            break;
+          case 'copy_number':
+            Clipboard.setData(ClipboardData(text: log.number));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Copied ${log.number} to clipboard'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'toggle_favorite':
+            if (matchingContact != null) {
+              widget.syncService.toggleFavorite(matchingContact.id);
+            }
+            break;
+          case 'share':
+            Clipboard.setData(ClipboardData(text: '$displayName: ${log.number}'));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Copied "$displayName: ${log.number}" to clipboard'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'block_number':
+            _confirmBlockNumber(context, log.number, displayName);
+            break;
+          case 'delete_call_log':
+            widget.syncService.deleteCallLog(log.id);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Call log deleted'),
+                duration: Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+        }
+      },
+    );
+  }
+
+  void _showContactContextMenu(BuildContext context, Offset position, SyncedContact contact) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    _showItemContextMenu(
+      context: context,
+      globalPosition: position,
+      items: [
+        _buildMenuItem(
+          value: 'call',
+          icon: Icons.call,
+          label: 'Call',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'sms',
+          icon: Icons.chat_bubble_outline,
+          label: 'Send SMS',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'copy_number',
+          icon: Icons.copy,
+          label: 'Copy Number',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        _buildMenuItem(
+          value: 'toggle_favorite',
+          icon: contact.isFavorite ? Icons.star : Icons.star_border,
+          label: contact.isFavorite ? 'Remove Favorite' : 'Add to Favorites',
+          iconColor: Colors.amber,
+        ),
+        _buildMenuItem(
+          value: 'share',
+          icon: Icons.share_outlined,
+          label: 'Share Contact',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          value: 'block_contact',
+          icon: Icons.block,
+          label: 'Block Contact',
+          iconColor: colorScheme.error,
+        ),
+      ],
+      onSelected: (action) {
+        switch (action) {
+          case 'call':
+            widget.syncService.makeCall(contact.phone);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Placing call to ${contact.name} (${contact.phone})...'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'sms':
+            _openSmsForNumber(contact.phone);
+            break;
+          case 'copy_number':
+            Clipboard.setData(ClipboardData(text: contact.phone));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Copied ${contact.phone} to clipboard'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'toggle_favorite':
+            widget.syncService.toggleFavorite(contact.id);
+            break;
+          case 'share':
+            Clipboard.setData(ClipboardData(text: '${contact.name}: ${contact.phone}'));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Copied "${contact.name}: ${contact.phone}" to clipboard'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'block_contact':
+            _confirmBlockNumber(context, contact.phone, contact.name);
+            break;
+        }
+      },
+    );
+  }
+
+  void _showSmsThreadContextMenu(BuildContext context, Offset position, SyncedSmsThread thread) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final displayName = thread.contactName.isNotEmpty && thread.contactName != thread.phone ? thread.contactName : thread.phone;
+    final isUnread = thread.unreadCount > 0;
+
+    _showItemContextMenu(
+      context: context,
+      globalPosition: position,
+      items: [
+        _buildMenuItem(
+          value: 'open',
+          icon: Icons.chat_bubble_outline,
+          label: 'Open Chat',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'call',
+          icon: Icons.call,
+          label: 'Call',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'copy_number',
+          icon: Icons.copy,
+          label: 'Copy Number',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        _buildMenuItem(
+          value: 'mark_read',
+          icon: isUnread ? Icons.mark_chat_read_outlined : Icons.mark_chat_unread_outlined,
+          label: isUnread ? 'Mark as Read' : 'Mark as Unread',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        _buildMenuItem(
+          value: 'block_number',
+          icon: Icons.block,
+          label: 'Block Number',
+          iconColor: colorScheme.error,
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          value: 'delete_thread',
+          icon: Icons.delete_outline,
+          label: 'Delete Conversation',
+          isDestructive: true,
+        ),
+      ],
+      onSelected: (action) {
+        switch (action) {
+          case 'open':
+            setState(() {
+              _selectedSmsThreadId = thread.id;
+            });
+            break;
+          case 'call':
+            widget.syncService.makeCall(thread.phone);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Placing call to $displayName (${thread.phone})...'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'copy_number':
+            Clipboard.setData(ClipboardData(text: thread.phone));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Copied ${thread.phone} to clipboard'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'mark_read':
+            widget.syncService.toggleSmsRead(thread.id);
+            break;
+          case 'block_number':
+            _confirmBlockNumber(context, thread.phone, displayName);
+            break;
+          case 'delete_thread':
+            _confirmDeleteSmsThread(context, thread);
+            break;
+        }
+      },
+    );
+  }
+
+  void _showNoteContextMenu(BuildContext context, Offset position, SyncedNote note) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    _showItemContextMenu(
+      context: context,
+      globalPosition: position,
+      items: [
+        _buildMenuItem(
+          value: 'edit',
+          icon: Icons.edit_outlined,
+          label: 'Edit Note',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
+          value: 'copy',
+          icon: Icons.copy,
+          label: 'Copy Content',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        _buildMenuItem(
+          value: 'share',
+          icon: Icons.share_outlined,
+          label: 'Share Note',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          value: 'delete',
+          icon: Icons.delete_outline,
+          label: 'Delete Note',
+          isDestructive: true,
+        ),
+      ],
+      onSelected: (action) {
+        switch (action) {
+          case 'edit':
+            _showEditNoteDialog(note);
+            break;
+          case 'copy':
+            Clipboard.setData(ClipboardData(text: '${note.title}\n\n${note.content}'));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Copied note to clipboard'),
+                duration: Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'share':
+            Clipboard.setData(ClipboardData(text: '${note.title}\n\n${note.content}'));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Note content copied to clipboard for sharing'),
+                duration: Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'delete':
+            _confirmDeleteNote(context, note);
+            break;
+        }
+      },
+    );
+  }
+
+  void _showEditNoteDialog(SyncedNote note) {
+    final titleController = TextEditingController(text: note.title);
+    final contentController = TextEditingController(text: note.content);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit Note'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(
+                labelText: 'Title',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contentController,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Content',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              widget.syncService.editNote(
+                note.id,
+                titleController.text,
+                contentController.text,
+              );
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteNote(BuildContext context, SyncedNote note) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Note'),
+        content: Text('Are you sure you want to delete "${note.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () {
+              widget.syncService.deleteNote(note.id);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Note deleted'),
+                  duration: Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteSmsThread(BuildContext context, SyncedSmsThread thread) {
+    final displayName = thread.contactName.isNotEmpty && thread.contactName != thread.phone ? thread.contactName : thread.phone;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Conversation'),
+        content: Text('Are you sure you want to delete the entire conversation with $displayName?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () {
+              widget.syncService.deleteSmsThread(thread.id);
+              if (_selectedSmsThreadId == thread.id) {
+                setState(() {
+                  _selectedSmsThreadId = null;
+                });
+              }
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Conversation deleted'),
+                  duration: Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmBlockNumber(BuildContext context, String number, String name) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Block Number'),
+        content: Text('Block incoming calls and messages from $name ($number)?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () {
+              widget.syncService.blockNumber(number);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Blocked $name ($number)'),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
   }
 }
