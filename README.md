@@ -35,6 +35,11 @@ flutter run -d linux
 # Or build release
 flutter build linux
 ./build/linux/x64/release/bundle/ever_dialer_pc
+
+# Package for all Linux distributions (AppImage, DEB, RPM, Arch, Tarball)
+build_release
+# (Or run directly from the repo: bash scripts/build_release.sh)
+# Packages are automatically placed into: ~/Downloads/Linux Release/
 ```
 
 ## 📂 Project Structure
