@@ -279,14 +279,6 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                   color: colorScheme.onSurface,
                 ),
               ),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined),
-                  tooltip: 'Settings',
-                  onPressed: _openSettings,
-                ),
-                const SizedBox(width: 8),
-              ],
             ),
             body: MobileLandscapeLayout(
               syncService: _syncService,

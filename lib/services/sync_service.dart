@@ -6,12 +6,44 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum CallType { incoming, outgoing, missed }
 
+class SyncedContactPhone {
+  final String number;
+  final int type;
+  final String label;
+
+  const SyncedContactPhone({
+    required this.number,
+    this.type = 2,
+    this.label = 'Mobile',
+  });
+
+  factory SyncedContactPhone.fromJson(Map<String, dynamic> json) {
+    return SyncedContactPhone(
+      number: json['number']?.toString() ?? '',
+      type: json['type'] is int ? json['type'] as int : 2,
+      label: json['label']?.toString() ?? 'Mobile',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'number': number,
+    'type': type,
+    'label': label,
+  };
+}
+
 class SyncedContact {
   final String id;
   final String name;
   final String phone;
   final bool isFavorite;
   final String? account;
+  final String? photoBase64;
+  final List<SyncedContactPhone> phones;
+  final List<String> emails;
+  final List<String> addresses;
+  final List<String> sourceAccounts;
+  final String? note;
 
   const SyncedContact({
     required this.id,
@@ -19,6 +51,12 @@ class SyncedContact {
     required this.phone,
     this.isFavorite = false,
     this.account,
+    this.photoBase64,
+    this.phones = const [],
+    this.emails = const [],
+    this.addresses = const [],
+    this.sourceAccounts = const [],
+    this.note,
   });
 
   String get initials {
@@ -29,12 +67,47 @@ class SyncedContact {
   }
 
   factory SyncedContact.fromJson(Map<String, dynamic> json) {
+    List<SyncedContactPhone> parsedPhones = [];
+    if (json['phones'] is List) {
+      parsedPhones = (json['phones'] as List)
+          .whereType<Map<String, dynamic>>()
+          .map((p) => SyncedContactPhone.fromJson(p))
+          .toList();
+    }
+    final rawPhone = json['phone']?.toString() ?? '';
+    if (parsedPhones.isEmpty && rawPhone.isNotEmpty) {
+      parsedPhones = [SyncedContactPhone(number: rawPhone, label: 'Mobile')];
+    }
+
+    List<String> parsedEmails = [];
+    if (json['emails'] is List) {
+      parsedEmails = (json['emails'] as List).map((e) => e.toString()).toList();
+    }
+
+    List<String> parsedAddresses = [];
+    if (json['addresses'] is List) {
+      parsedAddresses = (json['addresses'] as List).map((a) => a.toString()).toList();
+    }
+
+    List<String> parsedAccounts = [];
+    if (json['accounts'] is List) {
+      parsedAccounts = (json['accounts'] as List).map((a) => a.toString()).toList();
+    } else if (json['account'] != null) {
+      parsedAccounts = [json['account'].toString()];
+    }
+
     return SyncedContact(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Unknown',
-      phone: json['phone']?.toString() ?? '',
+      phone: rawPhone,
       isFavorite: json['isFavorite'] == true,
       account: json['account']?.toString(),
+      photoBase64: json['photoBase64']?.toString(),
+      phones: parsedPhones,
+      emails: parsedEmails,
+      addresses: parsedAddresses,
+      sourceAccounts: parsedAccounts,
+      note: json['note']?.toString(),
     );
   }
 
@@ -44,6 +117,12 @@ class SyncedContact {
     'phone': phone,
     'isFavorite': isFavorite,
     'account': account,
+    'photoBase64': photoBase64,
+    'phones': phones.map((p) => p.toJson()).toList(),
+    'emails': emails,
+    'addresses': addresses,
+    'accounts': sourceAccounts,
+    'note': note,
   };
 }
 
@@ -295,6 +374,23 @@ class PcSyncService extends ChangeNotifier {
   List<SyncedSmsThread> _smsThreads = [];
   List<SyncedNote> _notes = [];
 
+  // Category & Feature flags
+  bool _syncFavouritesEnabled = true;
+  bool _syncCallLogsEnabled = true;
+  bool _syncContactsEnabled = true;
+  bool _syncSmsEnabled = true;
+  bool _syncNotesEnabled = true;
+  bool _syncContactPfpEnabled = true;
+  bool _confirmPlacingCall = false;
+
+  bool get syncFavouritesEnabled => _syncFavouritesEnabled;
+  bool get syncCallLogsEnabled => _syncCallLogsEnabled;
+  bool get syncContactsEnabled => _syncContactsEnabled;
+  bool get syncSmsEnabled => _syncSmsEnabled;
+  bool get syncNotesEnabled => _syncNotesEnabled;
+  bool get syncContactPfpEnabled => _syncContactPfpEnabled;
+  bool get confirmPlacingCall => _confirmPlacingCall;
+
   List<SyncedContact> get contacts => List.unmodifiable(_contacts);
   List<SyncedContact> get favourites =>
       List.unmodifiable(_contacts.where((c) => c.isFavorite));
@@ -350,6 +446,16 @@ class PcSyncService extends ChangeNotifier {
         'callLogs': _callLogs.map((c) => c.toJson()).toList(),
         'smsThreads': _smsThreads.map((t) => t.toJson()).toList(),
         'notes': _notes.map((n) => n.toJson()).toList(),
+        'enabledFeatures': {
+          'favourites': _syncFavouritesEnabled,
+          'callLogs': _syncCallLogsEnabled,
+          'contacts': _syncContactsEnabled,
+          'sms': _syncSmsEnabled,
+          'notes': _syncNotesEnabled,
+          'contactPfp': _syncContactPfpEnabled,
+          'confirmPlacingCall': _confirmPlacingCall,
+        },
+        'confirmPlacingCall': _confirmPlacingCall,
         'lastSyncTime': _lastSyncTime?.millisecondsSinceEpoch,
         'deviceName': _connectedDeviceName,
       };
@@ -529,6 +635,25 @@ class PcSyncService extends ChangeNotifier {
       }
     }
 
+    // 5. Enabled Features
+    if (payload.containsKey('enabledFeatures')) {
+      final features = payload['enabledFeatures'];
+      if (features is Map<String, dynamic>) {
+        _syncFavouritesEnabled = features['favourites'] != false;
+        _syncCallLogsEnabled = features['callLogs'] != false;
+        _syncContactsEnabled = features['contacts'] != false;
+        _syncSmsEnabled = features['sms'] != false;
+        _syncNotesEnabled = features['notes'] != false;
+        _syncContactPfpEnabled = features['contactPfp'] != false;
+        if (features.containsKey('confirmPlacingCall')) {
+          _confirmPlacingCall = features['confirmPlacingCall'] == true;
+        }
+      }
+    }
+    if (payload.containsKey('confirmPlacingCall')) {
+      _confirmPlacingCall = payload['confirmPlacingCall'] == true;
+    }
+
     if (payload.containsKey('deviceName')) {
       _connectedDeviceName = payload['deviceName']?.toString();
     }
@@ -538,6 +663,29 @@ class PcSyncService extends ChangeNotifier {
     if (saveCache) {
       _saveCachedData();
     }
+  }
+
+  /// Look up contact photo (as Base64) by phone number.
+  /// Matches on exact digits or normalized last 7+ digits.
+  String? getPhotoBase64ForNumber(String number) {
+    if (!_syncContactPfpEnabled) return null;
+    final cleanTarget = number.replaceAll(RegExp(r'\D'), '');
+    if (cleanTarget.isEmpty) return null;
+
+    for (final contact in _contacts) {
+      if (contact.photoBase64 == null || contact.photoBase64!.isEmpty) continue;
+      final cleanContact = contact.phone.replaceAll(RegExp(r'\D'), '');
+      if (cleanContact.isEmpty) continue;
+
+      if (cleanContact == cleanTarget ||
+          (cleanContact.length >= 7 &&
+              cleanTarget.length >= 7 &&
+              (cleanContact.endsWith(cleanTarget) ||
+                  cleanTarget.endsWith(cleanContact)))) {
+        return contact.photoBase64;
+      }
+    }
+    return null;
   }
 
   void requestSyncNow() {
@@ -728,6 +876,28 @@ class PcSyncService extends ChangeNotifier {
         'isFavorite': _contacts[index].isFavorite,
       });
     }
+  }
+
+  void addContact(String name, String phone) {
+    final cleanPhone = phone.trim();
+    final cleanName = name.trim().isNotEmpty ? name.trim() : (cleanPhone.isNotEmpty ? cleanPhone : 'New Contact');
+    if (cleanPhone.isEmpty && name.trim().isEmpty) return;
+
+    final newContact = SyncedContact(
+      id: 'local_${DateTime.now().millisecondsSinceEpoch}',
+      name: cleanName,
+      phone: cleanPhone,
+      phones: [SyncedContactPhone(number: cleanPhone, label: 'Mobile')],
+    );
+    _contacts.insert(0, newContact);
+    _saveCachedData();
+    notifyListeners();
+
+    _sendCommand({
+      'cmd': 'add_contact',
+      'name': cleanName,
+      'phone': cleanPhone,
+    });
   }
 
   void deleteCallLog(String id) {

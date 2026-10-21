@@ -79,7 +79,7 @@ def handle_socket_connection(client_sock, client_addr):
         client_sock.settimeout(4.0)
         while running:
             try:
-                data = client_sock.recv(16384)
+                data = client_sock.recv(65536)
                 if not data:
                     log("Socket closed by remote device")
                     break

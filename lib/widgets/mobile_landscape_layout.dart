@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/sync_service.dart';
@@ -25,6 +26,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
 
   // Contacts tab state
   String _contactSearchQuery = '';
+  SyncedContact? _selectedContactForDetails;
 
   // SMS tab state
   String? _selectedSmsThreadId;
@@ -39,167 +41,477 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     super.dispose();
   }
 
+  ImageProvider? _getAvatarImage(String? photoBase64) {
+    if (photoBase64 == null || photoBase64.isEmpty) return null;
+    try {
+      return MemoryImage(base64Decode(photoBase64));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _initiateCall(String number, {String? displayName, String? photoBase64}) {
+    final cleanTarget = number.replaceAll(RegExp(r'\D'), '');
+    SyncedContact? matchingContact;
+    if (cleanTarget.isNotEmpty) {
+      for (final c in widget.syncService.contacts) {
+        final clean = c.phone.replaceAll(RegExp(r'\D'), '');
+        if (clean == cleanTarget ||
+            (clean.length >= 7 && cleanTarget.endsWith(clean)) ||
+            (cleanTarget.length >= 7 && clean.endsWith(cleanTarget))) {
+          matchingContact = c;
+          break;
+        }
+      }
+    }
+
+    final resolvedName = displayName ?? (matchingContact?.name.isNotEmpty == true ? matchingContact!.name : number);
+    final resolvedPhoto = photoBase64 ?? matchingContact?.photoBase64 ?? widget.syncService.getPhotoBase64ForNumber(number);
+
+    if (widget.syncService.confirmPlacingCall) {
+      _showConfirmCallDialog(
+        number: number,
+        displayName: resolvedName,
+        photoBase64: resolvedPhoto,
+      );
+    } else {
+      _executeCall(number, resolvedName);
+    }
+  }
+
+  void _executeCall(String number, String displayName) {
+    widget.syncService.makeCall(number);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Placing call to $displayName ($number)...'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showConfirmCallDialog({
+    required String number,
+    required String displayName,
+    String? photoBase64,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final avatarImg = _getAvatarImage(photoBase64);
+    final hasCustomName = displayName.trim().isNotEmpty && displayName.trim() != number.trim();
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      builder: (dialogCtx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Material(
+              color: colorScheme.surfaceContainerHigh,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(32),
+                side: BorderSide(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+                  width: 1,
+                ),
+              ),
+              elevation: 12,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: colorScheme.secondaryContainer.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(100),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.call,
+                            size: 14,
+                            color: colorScheme.onSecondaryContainer,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Confirm placing call',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.onSecondaryContainer,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Contact Avatar
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(26),
+                        border: Border.all(
+                          color: colorScheme.primary.withValues(alpha: 0.2),
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: colorScheme.primary.withValues(alpha: 0.1),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: avatarImg != null
+                          ? Image(image: avatarImg, fit: BoxFit.cover)
+                          : Center(
+                              child: hasCustomName
+                                  ? Text(
+                                      displayName.trim().substring(0, 1).toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 32,
+                                        fontWeight: FontWeight.bold,
+                                        color: colorScheme.onPrimaryContainer,
+                                      ),
+                                    )
+                                  : Icon(
+                                      Icons.person,
+                                      size: 42,
+                                      color: colorScheme.onPrimaryContainer,
+                                    ),
+                            ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Contact Name
+                    Text(
+                      displayName,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+
+                    if (hasCustomName) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        number,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                    const SizedBox(height: 28),
+
+                    // Action buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 50,
+                            child: FilledButton.tonal(
+                              style: FilledButton.styleFrom(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(26),
+                                ),
+                              ),
+                              onPressed: () => Navigator.pop(dialogCtx),
+                              child: const Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: SizedBox(
+                            height: 50,
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: colorScheme.primary,
+                                foregroundColor: colorScheme.onPrimary,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(26),
+                                ),
+                              ),
+                              onPressed: () {
+                                Navigator.pop(dialogCtx);
+                                _executeCall(number, displayName);
+                              },
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.call, size: 20),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Call',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Row(
-      children: [
-        // ── Left Navigation Rail ──────────────────────────────────────────
-        Container(
-          width: 88,
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerLow,
-            border: Border(
-              right: BorderSide(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.4),
-                width: 1,
+    return ListenableBuilder(
+      listenable: widget.syncService,
+      builder: (context, _) {
+        final sync = widget.syncService;
+        final visibleIndices = <int>[];
+        if (sync.syncFavouritesEnabled) visibleIndices.add(0);
+        if (sync.syncCallLogsEnabled) visibleIndices.add(1);
+        if (sync.syncContactsEnabled) visibleIndices.add(2);
+        if (sync.syncSmsEnabled) visibleIndices.add(3);
+        if (sync.syncNotesEnabled) visibleIndices.add(4);
+
+        final activeIndex = visibleIndices.contains(_selectedIndex)
+            ? _selectedIndex
+            : (visibleIndices.isNotEmpty ? visibleIndices.first : -1);
+
+        return Row(
+          children: [
+            // ── Left Navigation Rail ──────────────────────────────────────────
+            Container(
+              width: 88,
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerLow,
+                border: Border(
+                  right: BorderSide(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          if (sync.syncFavouritesEnabled) ...[
+                            _buildRailItem(
+                              index: 0,
+                              icon: Icons.favorite,
+                              unselectedIcon: Icons.favorite_border,
+                              label: 'Favourites',
+                              isSelected: activeIndex == 0,
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (sync.syncCallLogsEnabled) ...[
+                            _buildRailItem(
+                              index: 1,
+                              icon: Icons.history,
+                              unselectedIcon: Icons.history_outlined,
+                              label: 'Calls',
+                              isSelected: activeIndex == 1,
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (sync.syncContactsEnabled) ...[
+                            _buildRailItem(
+                              index: 2,
+                              icon: Icons.person,
+                              unselectedIcon: Icons.person_outline,
+                              label: 'Contacts',
+                              isSelected: activeIndex == 2,
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (sync.syncSmsEnabled) ...[
+                            _buildRailItem(
+                              index: 3,
+                              icon: Icons.chat,
+                              unselectedIcon: Icons.chat_bubble_outline,
+                              label: 'SMS',
+                              isSelected: activeIndex == 3,
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (sync.syncNotesEnabled) ...[
+                            _buildRailItem(
+                              index: 4,
+                              icon: Icons.note_alt,
+                              unselectedIcon: Icons.note_alt_outlined,
+                              label: 'Notes',
+                              isSelected: activeIndex == 4,
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  Divider(
+                    indent: 12,
+                    endIndent: 12,
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                  ),
+
+                  // Bluetooth Sync Status & trigger
+                  IconButton(
+                    icon: Icon(
+                      widget.syncService.isConnected
+                          ? Icons.bluetooth_connected
+                          : Icons.bluetooth_searching,
+                      color: widget.syncService.isConnected
+                          ? colorScheme.primary
+                          : colorScheme.outline,
+                      size: 20,
+                    ),
+                    tooltip: widget.syncService.isConnected
+                        ? 'Synced with ${widget.syncService.connectedDeviceName ?? "Mobile"}. Click to refresh.'
+                        : 'Searching for Ever Dialer Mobile... Click to refresh.',
+                    onPressed: () {
+                      widget.syncService.requestSyncNow();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            widget.syncService.isConnected
+                                ? 'Requesting sync from ${widget.syncService.connectedDeviceName ?? "phone"}...'
+                                : 'Listening for Bluetooth connection from Ever Dialer Mobile...',
+                          ),
+                          duration: const Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 4),
+
+                  // Settings button at bottom of rail
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: IconButton(
+                      icon: const Icon(Icons.tune),
+                      tooltip: 'Settings',
+                      iconSize: 24,
+                      color: colorScheme.onSurfaceVariant,
+                      onPressed: widget.onOpenSettings,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      _buildRailItem(
-                        index: 0,
-                        icon: Icons.favorite,
-                        unselectedIcon: Icons.favorite_border,
-                        label: 'Favourites',
-                      ),
-                      const SizedBox(height: 6),
-                      _buildRailItem(
-                        index: 1,
-                        icon: Icons.history,
-                        unselectedIcon: Icons.history_outlined,
-                        label: 'Calls',
-                      ),
-                      const SizedBox(height: 6),
-                      _buildRailItem(
-                        index: 2,
-                        icon: Icons.person,
-                        unselectedIcon: Icons.person_outline,
-                        label: 'Contacts',
-                      ),
-                      const SizedBox(height: 6),
-                      _buildRailItem(
-                        index: 3,
-                        icon: Icons.chat,
-                        unselectedIcon: Icons.chat_bubble_outline,
-                        label: 'SMS',
-                      ),
-                      const SizedBox(height: 6),
-                      _buildRailItem(
-                        index: 4,
-                        icon: Icons.note_alt,
-                        unselectedIcon: Icons.note_alt_outlined,
-                        label: 'Notes',
-                      ),
-                    ],
-                  ),
-                ),
-              ),
 
-              Divider(
-                indent: 12,
-                endIndent: 12,
-                color: colorScheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-
-              // Bluetooth Sync Status & trigger
-              IconButton(
-                icon: Icon(
-                  widget.syncService.isConnected
-                      ? Icons.bluetooth_connected
-                      : Icons.bluetooth_searching,
-                  color: widget.syncService.isConnected
-                      ? colorScheme.primary
-                      : colorScheme.outline,
-                  size: 20,
-                ),
-                tooltip: widget.syncService.isConnected
-                    ? 'Synced with ${widget.syncService.connectedDeviceName ?? "Mobile"}. Click to refresh.'
-                    : 'Searching for Ever Dialer Mobile... Click to refresh.',
-                onPressed: () {
-                  widget.syncService.requestSyncNow();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        widget.syncService.isConnected
-                            ? 'Requesting sync from ${widget.syncService.connectedDeviceName ?? "phone"}...'
-                            : 'Listening for Bluetooth connection from Ever Dialer Mobile...',
-                      ),
-                      duration: const Duration(seconds: 2),
-                      behavior: SnackBarBehavior.floating,
+            // ── Right Main Content Area ───────────────────────────────────────
+            Expanded(
+              child: Stack(
+                children: [
+                  Material(
+                    color: colorScheme.surface,
+                    child: Builder(
+                      builder: (context) {
+                        switch (activeIndex) {
+                          case 0:
+                            return _buildFavouritesView();
+                          case 1:
+                            return _buildCallLogsView();
+                          case 2:
+                            return _buildContactsView();
+                          case 3:
+                            return _buildSmsView();
+                          case 4:
+                            return _buildNotesView();
+                          default:
+                            return Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.sync_disabled, size: 48, color: colorScheme.outline),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'All sync categories are disabled',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Enable categories in PC Connect settings on your phone.',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: colorScheme.outline,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                        }
+                      },
                     ),
-                  );
-                },
-              ),
-              const SizedBox(height: 4),
-
-              // Settings button at bottom of rail
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: IconButton(
-                  icon: const Icon(Icons.tune),
-                  tooltip: 'Settings',
-                  iconSize: 24,
-                  color: colorScheme.onSurfaceVariant,
-                  onPressed: widget.onOpenSettings,
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // ── Right Main Content Area ───────────────────────────────────────
-        Expanded(
-          child: Stack(
-            children: [
-              Material(
-                color: colorScheme.surface,
-                child: ListenableBuilder(
-                  listenable: widget.syncService,
-                  builder: (context, _) {
-                    switch (_selectedIndex) {
-                      case 0:
-                        return _buildFavouritesView();
-                      case 1:
-                        return _buildCallLogsView();
-                      case 2:
-                        return _buildContactsView();
-                      case 3:
-                        return _buildSmsView();
-                      case 4:
-                        return _buildNotesView();
-                      default:
-                        return _buildFavouritesView();
-                    }
-                  },
-                ),
-              ),
-              if (_selectedIndex == 1)
-                Positioned(
-                  right: 24,
-                  bottom: 24,
-                  child: FloatingActionButton.extended(
-                    onPressed: () => _showDialDialog(context),
-                    icon: const Icon(Icons.dialpad),
-                    label: const Text('Dialpad'),
                   ),
-                ),
-            ],
-          ),
-        ),
-      ],
+                  if (activeIndex == 0 || activeIndex == 1 || activeIndex == 2)
+                    Positioned(
+                      right: 24,
+                      bottom: 24,
+                      child: FloatingActionButton.extended(
+                        onPressed: () => _showDialDialog(context),
+                        icon: const Icon(Icons.dialpad),
+                        label: const Text('Dialpad'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
   void _openSmsForNumber(String num) {
+    if (!widget.syncService.syncSmsEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('SMS sync is disabled in PC Connect settings on your phone.'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     final clean = num.replaceAll(RegExp(r'[^\d+]'), '');
     final existingIndex = widget.syncService.smsThreads.indexWhere(
       (t) => t.phone.replaceAll(RegExp(r'[^\d+]'), '') == clean,
@@ -213,114 +525,633 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     });
   }
 
+  void _showAddContactDialog(BuildContext context, {String initialPhone = ''}) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController(text: initialPhone);
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      builder: (dialogCtx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Material(
+              color: colorScheme.surfaceContainerHigh,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+                side: BorderSide(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+                  width: 1,
+                ),
+              ),
+              elevation: 10,
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primaryContainer,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.person_add_rounded, color: colorScheme.onPrimaryContainer, size: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Text(
+                          'Add Contact',
+                          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: nameCtrl,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        labelText: 'Contact Name',
+                        prefixIcon: const Icon(Icons.person_outline),
+                        filled: true,
+                        fillColor: colorScheme.surfaceContainer,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        labelText: 'Phone Number',
+                        prefixIcon: const Icon(Icons.phone_outlined),
+                        filled: true,
+                        fillColor: colorScheme.surfaceContainer,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogCtx),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: () {
+                            final name = nameCtrl.text.trim();
+                            final phone = phoneCtrl.text.trim();
+                            if (name.isNotEmpty || phone.isNotEmpty) {
+                              widget.syncService.addContact(name, phone);
+                              Navigator.pop(dialogCtx);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Contact added: ${name.isNotEmpty ? name : phone}'),
+                                  duration: const Duration(seconds: 2),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.check, size: 18),
+                          label: const Text('Save'),
+                          style: FilledButton.styleFrom(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showDialDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) {
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      builder: (dialogContext) {
         String enteredNumber = '';
+        int cursorPosition = 0;
+        String searchQuery = '';
+        final focusNode = FocusNode();
+        final searchCtrl = TextEditingController();
+
+        String convertNameToT9(String name) {
+          final buffer = StringBuffer();
+          for (final rune in name.toUpperCase().runes) {
+            final char = String.fromCharCode(rune);
+            switch (char) {
+              case 'A': case 'B': case 'C': buffer.write('2'); break;
+              case 'D': case 'E': case 'F': buffer.write('3'); break;
+              case 'G': case 'H': case 'I': buffer.write('4'); break;
+              case 'J': case 'K': case 'L': buffer.write('5'); break;
+              case 'M': case 'N': case 'O': buffer.write('6'); break;
+              case 'P': case 'Q': case 'R': case 'S': buffer.write('7'); break;
+              case 'T': case 'U': case 'V': buffer.write('8'); break;
+              case 'W': case 'X': case 'Y': case 'Z': buffer.write('9'); break;
+              default: buffer.write('0'); break;
+            }
+          }
+          return buffer.toString();
+        }
+
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final theme = Theme.of(context);
             final colorScheme = theme.colorScheme;
 
-            void appendDigit(String digit) {
+            void insertAtCursor(String text) {
               setDialogState(() {
-                enteredNumber += digit;
+                final pos = cursorPosition.clamp(0, enteredNumber.length);
+                enteredNumber = enteredNumber.substring(0, pos) + text + enteredNumber.substring(pos);
+                cursorPosition = pos + text.length;
               });
             }
 
-            void deleteDigit() {
+            void deleteAtCursor() {
               if (enteredNumber.isNotEmpty) {
                 setDialogState(() {
-                  enteredNumber = enteredNumber.substring(0, enteredNumber.length - 1);
+                  final pos = cursorPosition.clamp(0, enteredNumber.length);
+                  if (pos > 0) {
+                    enteredNumber = enteredNumber.substring(0, pos - 1) + enteredNumber.substring(pos);
+                    cursorPosition = pos - 1;
+                  }
                 });
               }
             }
 
-            return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 340),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        alignment: Alignment.center,
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                enteredNumber.isEmpty ? 'Enter number' : enteredNumber,
-                                style: theme.textTheme.headlineMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: enteredNumber.isEmpty
-                                      ? colorScheme.outline
-                                      : colorScheme.onSurface,
-                                ),
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (enteredNumber.isNotEmpty)
-                              IconButton(
-                                icon: const Icon(Icons.backspace_outlined, size: 20),
-                                onPressed: deleteDigit,
-                              ),
-                          ],
-                        ),
+            void clearAll() {
+              setDialogState(() {
+                enteredNumber = '';
+                cursorPosition = 0;
+              });
+            }
+
+            // Real-time contact matching (T9 + digits + search query)
+            final q = searchQuery.trim().toLowerCase();
+            final numDigits = enteredNumber.replaceAll(RegExp(r'[^\d+*#]'), '');
+            List<SyncedContact> matchedContacts = [];
+            if (q.isNotEmpty) {
+              matchedContacts = widget.syncService.contacts.where((c) {
+                return c.name.toLowerCase().contains(q) ||
+                    c.phone.replaceAll(RegExp(r'[^\d+]'), '').contains(q);
+              }).take(3).toList();
+            } else if (numDigits.isNotEmpty) {
+              matchedContacts = widget.syncService.contacts.where((c) {
+                final cleanPhone = c.phone.replaceAll(RegExp(r'[^\d+]'), '');
+                final matchesPhone = cleanPhone.contains(numDigits);
+                final t9Name = convertNameToT9(c.name);
+                final matchesT9 = t9Name.contains(numDigits);
+                return matchesPhone || matchesT9;
+              }).take(3).toList();
+            }
+
+            double numFontSize = 34;
+            if (enteredNumber.length > 8) numFontSize = 28;
+            if (enteredNumber.length > 12) numFontSize = 22;
+            if (enteredNumber.length > 16) numFontSize = 18;
+
+            return Focus(
+              focusNode: focusNode,
+              autofocus: true,
+              onKeyEvent: (node, event) {
+                if (event is KeyDownEvent) {
+                  if (event.logicalKey == LogicalKeyboardKey.backspace) {
+                    deleteAtCursor();
+                    return KeyEventResult.handled;
+                  } else if (event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+                    if (enteredNumber.isNotEmpty) {
+                      Navigator.pop(dialogContext);
+                      _initiateCall(enteredNumber);
+                    } else {
+                      final latest = widget.syncService.callLogs.firstOrNull;
+                      if (latest != null && latest.number.isNotEmpty) {
+                        setDialogState(() {
+                          enteredNumber = latest.number;
+                          cursorPosition = enteredNumber.length;
+                        });
+                      }
+                    }
+                    return KeyEventResult.handled;
+                  } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+                    Navigator.pop(dialogContext);
+                    return KeyEventResult.handled;
+                  } else {
+                    final keyLabel = event.logicalKey.keyLabel;
+                    if (RegExp(r'^[0-9*#+]$').hasMatch(keyLabel)) {
+                      insertAtCursor(keyLabel);
+                      return KeyEventResult.handled;
+                    }
+                  }
+                }
+                return KeyEventResult.ignored;
+              },
+              child: Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Material(
+                    color: colorScheme.surfaceContainerHigh,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(32),
+                      side: BorderSide(
+                        color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+                        width: 1,
                       ),
-                      const SizedBox(height: 16),
-                      _buildDialpadGrid(context, appendDigit),
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    ),
+                    elevation: 12,
+                    clipBehavior: Clip.antiAlias,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Colors.green.shade600,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            ),
-                            icon: const Icon(Icons.call),
-                            label: const Text('Call'),
-                            onPressed: enteredNumber.trim().isEmpty
-                                ? null
-                                : () {
-                                    final num = enteredNumber.trim();
-                                    Navigator.pop(context);
-                                    widget.syncService.makeCall(num);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Placing call to $num through phone...'),
-                                        duration: const Duration(seconds: 2),
-                                        behavior: SnackBarBehavior.floating,
+                          // ── Top Search Bar ──────────────────────────────────────────
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  child: TextField(
+                                    controller: searchCtrl,
+                                    decoration: InputDecoration(
+                                      hintText: 'Search contacts...',
+                                      hintStyle: TextStyle(
+                                        fontSize: 14,
+                                        color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
                                       ),
-                                    );
-                                  },
+                                      prefixIcon: Icon(
+                                        Icons.search,
+                                        size: 20,
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                      suffixIcon: searchQuery.isNotEmpty
+                                          ? IconButton(
+                                              icon: const Icon(Icons.clear, size: 18),
+                                              onPressed: () {
+                                                searchCtrl.clear();
+                                                setDialogState(() {
+                                                  searchQuery = '';
+                                                });
+                                              },
+                                            )
+                                          : null,
+                                      border: InputBorder.none,
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                                    ),
+                                    onChanged: (val) {
+                                      setDialogState(() {
+                                        searchQuery = val;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                onPressed: () => Navigator.pop(dialogContext),
+                                icon: const Icon(Icons.close),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                                  foregroundColor: colorScheme.onSurfaceVariant,
+                                  shape: const CircleBorder(),
+                                ),
+                              ),
+                            ],
                           ),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+
+                          // ── Matching contacts / recent preview ──────────────────────
+                          if (matchedContacts.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              constraints: const BoxConstraints(maxHeight: 125),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                padding: EdgeInsets.zero,
+                                itemCount: matchedContacts.length,
+                                separatorBuilder: (context, index) => const SizedBox(height: 4),
+                                itemBuilder: (context, idx) {
+                                  final contact = matchedContacts[idx];
+                                  final avatarImg = _getAvatarImage(contact.photoBase64);
+                                  return InkWell(
+                                    borderRadius: BorderRadius.circular(14),
+                                    onTap: () {
+                                      setDialogState(() {
+                                        enteredNumber = contact.phone;
+                                        cursorPosition = enteredNumber.length;
+                                      });
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: colorScheme.surfaceContainerLow,
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 16,
+                                            backgroundImage: avatarImg,
+                                            backgroundColor: colorScheme.primaryContainer,
+                                            child: avatarImg == null
+                                                ? Text(
+                                                    contact.initials,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: colorScheme.onPrimaryContainer,
+                                                    ),
+                                                  )
+                                                : null,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  contact.name,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 13,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                Text(
+                                                  contact.phone,
+                                                  style: TextStyle(
+                                                    color: colorScheme.onSurfaceVariant,
+                                                    fontSize: 11,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.call, size: 18),
+                                            color: Colors.green.shade600,
+                                            onPressed: () {
+                                              Navigator.pop(dialogContext);
+                                              _initiateCall(contact.phone);
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
-                            icon: const Icon(Icons.chat),
-                            label: const Text('SMS'),
-                            onPressed: enteredNumber.trim().isEmpty
-                                ? null
-                                : () {
-                                    final num = enteredNumber.trim();
-                                    Navigator.pop(context);
-                                    _openSmsForNumber(num);
-                                  },
+                          ],
+
+                          // ── Number Display Area ─────────────────────────────────────
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            alignment: Alignment.center,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  height: 44,
+                                  child: Center(
+                                    child: enteredNumber.isEmpty
+                                        ? Text(
+                                            'Dial a number',
+                                            style: theme.textTheme.titleMedium?.copyWith(
+                                              color: colorScheme.outline.withValues(alpha: 0.6),
+                                            ),
+                                          )
+                                        : RichText(
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            text: TextSpan(
+                                              children: [
+                                                TextSpan(
+                                                  text: enteredNumber.substring(0, cursorPosition.clamp(0, enteredNumber.length)),
+                                                  style: TextStyle(
+                                                    fontSize: numFontSize,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: colorScheme.onSurface,
+                                                    letterSpacing: 1.5,
+                                                  ),
+                                                ),
+                                                WidgetSpan(
+                                                  alignment: PlaceholderAlignment.middle,
+                                                  child: Container(
+                                                    width: 2.5,
+                                                    height: numFontSize * 0.9,
+                                                    margin: const EdgeInsets.symmetric(horizontal: 1),
+                                                    decoration: BoxDecoration(
+                                                      color: colorScheme.primary,
+                                                      borderRadius: BorderRadius.circular(1),
+                                                    ),
+                                                  ),
+                                                ),
+                                                TextSpan(
+                                                  text: enteredNumber.substring(cursorPosition.clamp(0, enteredNumber.length)),
+                                                  style: TextStyle(
+                                                    fontSize: numFontSize,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: colorScheme.onSurface,
+                                                    letterSpacing: 1.5,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                  ),
+                                ),
+
+                                // Quick action chips when number is present
+                                if (enteredNumber.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      ActionChip(
+                                        avatar: const Icon(Icons.person_add_outlined, size: 16),
+                                        label: const Text('Add Contact', style: TextStyle(fontSize: 12)),
+                                        padding: EdgeInsets.zero,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                        onPressed: () {
+                                          _showAddContactDialog(context, initialPhone: enteredNumber);
+                                        },
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ActionChip(
+                                        avatar: const Icon(Icons.copy_outlined, size: 16),
+                                        label: const Text('Copy', style: TextStyle(fontSize: 12)),
+                                        padding: EdgeInsets.zero,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                        onPressed: () {
+                                          Clipboard.setData(ClipboardData(text: enteredNumber));
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Number copied to clipboard'),
+                                              duration: Duration(seconds: 2),
+                                              behavior: SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ActionChip(
+                                        avatar: const Icon(Icons.chat_bubble_outline, size: 16),
+                                        label: const Text('SMS', style: TextStyle(fontSize: 12)),
+                                        padding: EdgeInsets.zero,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                        onPressed: () {
+                                          final num = enteredNumber.trim();
+                                          Navigator.pop(dialogContext);
+                                          _openSmsForNumber(num);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
+
+                          const SizedBox(height: 10),
+
+                          // ── Dialpad Keys Grid (Mobile M3 Parity) ─────────────────────
+                          Container(
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            child: _buildDialpadGridM3(
+                              context,
+                              onDigit: insertAtCursor,
+                              onPlus: () => insertAtCursor('+'),
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // ── Bottom Action Row (Add Contact | Call | Backspace) ──────
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                // Add contact icon button
+                                Material(
+                                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(22),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: InkWell(
+                                    onTap: () {
+                                      _showAddContactDialog(context, initialPhone: enteredNumber);
+                                    },
+                                    child: SizedBox(
+                                      width: 62,
+                                      height: 56,
+                                      child: Icon(
+                                        Icons.person_add_rounded,
+                                        size: 24,
+                                        color: colorScheme.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                // Centered Prominent Call Button
+                                Material(
+                                  color: const Color(0xFF34A853),
+                                  borderRadius: BorderRadius.circular(26),
+                                  elevation: 3,
+                                  clipBehavior: Clip.antiAlias,
+                                  child: InkWell(
+                                    onTap: () {
+                                      if (enteredNumber.trim().isNotEmpty) {
+                                        final num = enteredNumber.trim();
+                                        Navigator.pop(dialogContext);
+                                        _initiateCall(num);
+                                      } else {
+                                        // Recall latest call log entry
+                                        final latest = widget.syncService.callLogs.firstOrNull;
+                                        if (latest != null && latest.number.isNotEmpty) {
+                                          setDialogState(() {
+                                            enteredNumber = latest.number;
+                                            cursorPosition = enteredNumber.length;
+                                          });
+                                        }
+                                      }
+                                    },
+                                    child: const SizedBox(
+                                      width: 96,
+                                      height: 56,
+                                      child: Icon(
+                                        Icons.call,
+                                        size: 28,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                // Backspace button with clear on long-press
+                                Material(
+                                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(22),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: InkWell(
+                                    onTap: deleteAtCursor,
+                                    onLongPress: clearAll,
+                                    child: SizedBox(
+                                      width: 62,
+                                      height: 56,
+                                      child: Icon(
+                                        Icons.backspace_outlined,
+                                        size: 22,
+                                        color: enteredNumber.isNotEmpty
+                                            ? colorScheme.onSurface
+                                            : colorScheme.outline.withValues(alpha: 0.4),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -331,12 +1162,16 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     );
   }
 
-  Widget _buildDialpadGrid(BuildContext context, void Function(String) onDigit) {
+  Widget _buildDialpadGridM3(
+    BuildContext context, {
+    required void Function(String) onDigit,
+    required VoidCallback onPlus,
+  }) {
     const keys = [
-      ['1', ''], ['2', 'ABC'], ['3', 'DEF'],
+      ['1', ' '], ['2', 'ABC'], ['3', 'DEF'],
       ['4', 'GHI'], ['5', 'JKL'], ['6', 'MNO'],
       ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ'],
-      ['*', ''], ['0', '+'], ['#', ''],
+      ['*', ' '], ['0', '+'], ['#', ' '],
     ];
 
     return Column(
@@ -348,7 +1183,13 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 for (int c = 0; c < 3; c++)
-                  _buildDialKey(context, keys[r * 3 + c][0], keys[r * 3 + c][1], onDigit),
+                  _buildDialKeyM3(
+                    context,
+                    main: keys[r * 3 + c][0],
+                    sub: keys[r * 3 + c][1],
+                    onDigit: onDigit,
+                    onLongPress: keys[r * 3 + c][0] == '0' ? onPlus : null,
+                  ),
               ],
             ),
           ),
@@ -356,40 +1197,55 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     );
   }
 
-  Widget _buildDialKey(BuildContext context, String main, String sub, void Function(String) onDigit) {
+  Widget _buildDialKeyM3(
+    BuildContext context, {
+    required String main,
+    required String sub,
+    required void Function(String) onDigit,
+    VoidCallback? onLongPress,
+  }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isStar = main == '*';
+    final isPlus = sub.trim() == '+';
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(32),
-      onTap: () => onDigit(main),
-      onLongPress: main == '0' ? () => onDigit('+') : null,
-      child: Container(
-        width: 60,
-        height: 60,
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          shape: BoxShape.circle,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              main,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (sub.isNotEmpty)
+    return Material(
+      color: colorScheme.primaryContainer,
+      borderRadius: BorderRadius.circular(24),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => onDigit(main),
+        onLongPress: onLongPress,
+        splashColor: colorScheme.primary.withValues(alpha: 0.25),
+        highlightColor: colorScheme.primary.withValues(alpha: 0.15),
+        child: SizedBox(
+          width: 86,
+          height: 54,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
               Text(
-                sub,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontSize: 8,
-                  letterSpacing: 1.0,
-                  color: colorScheme.outline,
+                main,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontSize: isStar ? 26 : 21,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onPrimaryContainer,
+                  height: 1.1,
                 ),
               ),
-          ],
+              if (sub.trim().isNotEmpty)
+                Text(
+                  sub,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontSize: isPlus ? 12 : 9.5,
+                    fontWeight: isPlus ? FontWeight.bold : FontWeight.w500,
+                    letterSpacing: isPlus ? 0 : 1.2,
+                    color: colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
+                    height: 1.0,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -464,10 +1320,11 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     required IconData icon,
     required IconData unselectedIcon,
     required String label,
+    bool? isSelected,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isSelected = _selectedIndex == index;
+    final selected = isSelected ?? (_selectedIndex == index);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
@@ -488,15 +1345,15 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isSelected
+                  color: selected
                       ? colorScheme.primaryContainer
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Icon(
-                  isSelected ? icon : unselectedIcon,
+                  selected ? icon : unselectedIcon,
                   size: 22,
-                  color: isSelected
+                  color: selected
                       ? colorScheme.onPrimaryContainer
                       : colorScheme.onSurfaceVariant,
                 ),
@@ -505,8 +1362,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               Text(
                 label,
                 style: theme.textTheme.labelSmall?.copyWith(
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                  color: selected
                       ? colorScheme.onSurface
                       : colorScheme.onSurfaceVariant,
                 ),
@@ -601,16 +1458,24 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            CircleAvatar(
-                              radius: 22,
-                              backgroundColor: colorScheme.primaryContainer,
-                              child: Text(
-                                contact.initials,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: colorScheme.onPrimaryContainer,
-                                ),
-                              ),
+                            Builder(
+                              builder: (context) {
+                                final avatarImg = _getAvatarImage(contact.photoBase64);
+                                return CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: colorScheme.primaryContainer,
+                                  backgroundImage: avatarImg,
+                                  child: avatarImg != null
+                                      ? null
+                                      : Text(
+                                          contact.initials,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: colorScheme.onPrimaryContainer,
+                                          ),
+                                        ),
+                                );
+                              },
                             ),
                             const SizedBox(height: 8),
                             Text(
@@ -638,14 +1503,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                                   color: colorScheme.primary,
                                   tooltip: 'Call ${contact.name}',
                                   onPressed: () {
-                                    widget.syncService.makeCall(contact.phone);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Calling ${contact.name} (${contact.phone})...'),
-                                        duration: const Duration(seconds: 2),
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
+                                    _initiateCall(contact.phone, displayName: contact.name, photoBase64: contact.photoBase64);
                                   },
                                 ),
                                 IconButton(
@@ -679,7 +1537,40 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     final colorScheme = theme.colorScheme;
     final allLogs = widget.syncService.callLogs;
 
+    final favoritePhoneNumbers = widget.syncService.contacts
+        .where((c) => c.isFavorite)
+        .expand((c) => [c.phone, ...c.phones.map((p) => p.number)])
+        .map((n) => n.replaceAll(RegExp(r'[^\d+]'), ''))
+        .where((n) => n.isNotEmpty)
+        .toSet();
+
+    final Map<String, SyncedContact> contactByCleanNumber = {};
+    for (final contact in widget.syncService.contacts) {
+      final cleanPrimary = contact.phone.replaceAll(RegExp(r'[^\d+]'), '');
+      if (cleanPrimary.isNotEmpty) {
+        contactByCleanNumber[cleanPrimary] = contact;
+      }
+      for (final p in contact.phones) {
+        final clean = p.number.replaceAll(RegExp(r'[^\d+]'), '');
+        if (clean.isNotEmpty) {
+          contactByCleanNumber[clean] = contact;
+        }
+      }
+    }
+
     final filteredLogs = allLogs.where((log) {
+      final cleanNum = log.number.replaceAll(RegExp(r'[^\d+]'), '');
+      final matchedContact = contactByCleanNumber[cleanNum];
+      final isKnown = (log.name.isNotEmpty &&
+              log.name.toLowerCase() != log.number.toLowerCase() &&
+              log.name.toLowerCase() != 'unknown') ||
+          matchedContact != null;
+      final isFav = (matchedContact?.isFavorite == true) ||
+          favoritePhoneNumbers.contains(cleanNum);
+
+      if (_callFilter == 'Known' && !isKnown) return false;
+      if (_callFilter == 'Favourites' && !isFav) return false;
+      if (_callFilter == 'Unknown' && isKnown) return false;
       if (_callFilter == 'Missed' && log.type != CallType.missed) return false;
       if (_callFilter == 'Incoming' && log.type != CallType.incoming) return false;
       if (_callFilter == 'Outgoing' && log.type != CallType.outgoing) return false;
@@ -730,7 +1621,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           // Search and Filters
           Row(
             children: [
-              Expanded(
+              SizedBox(
+                width: 250,
                 child: TextField(
                   decoration: InputDecoration(
                     hintText: 'Search call logs...',
@@ -765,24 +1657,39 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 ),
               ),
               const SizedBox(width: 12),
-              ...['All', 'Missed', 'Incoming', 'Outgoing'].map((f) {
-                final isSelected = _callFilter == f;
-                return Padding(
-                  padding: const EdgeInsets.only(left: 6.0),
-                  child: FilterChip(
-                    label: Text(f),
-                    selected: isSelected,
-                    onSelected: (_) {
-                      setState(() {
-                        _callFilter = f;
-                      });
-                    },
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(999),
-                    ),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      'All',
+                      'Known',
+                      'Favourites',
+                      'Unknown',
+                      'Missed',
+                      'Incoming',
+                      'Outgoing',
+                    ].map((f) {
+                      final isSelected = _callFilter == f;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6.0),
+                        child: FilterChip(
+                          label: Text(f),
+                          selected: isSelected,
+                          onSelected: (_) {
+                            setState(() {
+                              _callFilter = f;
+                            });
+                          },
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                );
-              }),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -906,23 +1813,32 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           horizontal: 16,
           vertical: 6,
         ),
-        leading: CircleAvatar(
-          radius: 22,
-          backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
-          child: hasContactName && log.name.trim().isNotEmpty
-              ? Text(
-                  log.name.trim()[0].toUpperCase(),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: colorScheme.onSurface,
-                  ),
-                )
-              : Icon(
-                  Icons.person,
-                  size: 22,
-                  color: colorScheme.onSurfaceVariant,
-                ),
+        leading: Builder(
+          builder: (context) {
+            final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(log.number);
+            final avatarImg = _getAvatarImage(pfpBase64);
+            return CircleAvatar(
+              radius: 22,
+              backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
+              backgroundImage: avatarImg,
+              child: avatarImg != null
+                  ? null
+                  : (hasContactName && log.name.trim().isNotEmpty
+                      ? Text(
+                          log.name.trim()[0].toUpperCase(),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: colorScheme.onSurface,
+                          ),
+                        )
+                      : Icon(
+                          Icons.person,
+                          size: 22,
+                          color: colorScheme.onSurfaceVariant,
+                        )),
+            );
+          },
         ),
         title: Text(
           displayTitle,
@@ -1030,28 +1946,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 icon: Icon(typeIcon, size: 18, color: iconColor),
                 tooltip: 'Call $displayTitle',
                 onPressed: () {
-                  widget.syncService.makeCall(log.number);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Placing call to $displayTitle (${log.number})...'),
-                      duration: const Duration(seconds: 2),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
+                  _initiateCall(log.number, displayName: displayTitle);
                 },
               ),
             ),
           ],
         ),
         onTap: () {
-          widget.syncService.makeCall(log.number);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Placing call to $displayTitle (${log.number})...'),
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          _initiateCall(log.number, displayName: displayTitle);
         },
       ),
     );
@@ -1061,6 +1963,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   // 3. Contacts View
   // ═════════════════════════════════════════════════════════════════════════
   Widget _buildContactsView() {
+    if (_selectedContactForDetails != null) {
+      final currentContact = widget.syncService.contacts.firstWhere(
+        (c) => c.id == _selectedContactForDetails!.id,
+        orElse: () => _selectedContactForDetails!,
+      );
+      return _buildContactInfoView(currentContact);
+    }
+
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final allContacts = widget.syncService.contacts;
@@ -1244,26 +2154,29 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           vertical: 4,
         ),
         onTap: () {
-          widget.syncService.makeCall(contact.phone);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Placing call to ${contact.name} (${contact.phone})...'),
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          setState(() {
+            _selectedContactForDetails = contact;
+          });
         },
-        leading: CircleAvatar(
-          radius: 22,
-          backgroundColor: colorScheme.primaryContainer,
-          child: Text(
-            contact.initials,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-              color: colorScheme.onPrimaryContainer,
-            ),
-          ),
+        leading: Builder(
+          builder: (context) {
+            final avatarImg = _getAvatarImage(contact.photoBase64);
+            return CircleAvatar(
+              radius: 22,
+              backgroundColor: colorScheme.primaryContainer,
+              backgroundImage: avatarImg,
+              child: avatarImg != null
+                  ? null
+                  : Text(
+                      contact.initials,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+            );
+          },
         ),
         title: Text(
           contact.name,
@@ -1322,19 +2235,612 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 icon: Icon(Icons.call, size: 18, color: colorScheme.primary),
                 tooltip: 'Call ${contact.name}',
                 onPressed: () {
-                  widget.syncService.makeCall(contact.phone);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Placing call to ${contact.name} (${contact.phone})...'),
-                      duration: const Duration(seconds: 2),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
+                  _initiateCall(contact.phone, displayName: contact.name, photoBase64: contact.photoBase64);
                 },
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  bool _numbersMatch(String n1, String n2) {
+    final c1 = n1.replaceAll(RegExp(r'\D'), '');
+    final c2 = n2.replaceAll(RegExp(r'\D'), '');
+    if (c1.isEmpty || c2.isEmpty) return false;
+    if (c1 == c2) return true;
+    if (c1.length >= 7 && c2.length >= 7) {
+      return c1.endsWith(c2) || c2.endsWith(c1);
+    }
+    return false;
+  }
+
+  Widget _buildContactInfoView(SyncedContact contact) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final avatarImg = _getAvatarImage(contact.photoBase64);
+
+    // Matching call logs for Recent Activity
+    final contactPhones = contact.phones.isNotEmpty
+        ? contact.phones.map((p) => p.number).toSet()
+        : {contact.phone};
+    final matchingLogs = widget.syncService.callLogs.where((log) {
+      return contactPhones.any((p) => _numbersMatch(log.number, p));
+    }).toList();
+
+    // Matching notes
+    final matchingNotes = widget.syncService.notes.where((n) {
+      final titleMatch = n.title.toLowerCase().contains(contact.name.toLowerCase());
+      final phoneMatch = contactPhones.any((p) => n.content.contains(p) || n.title.contains(p));
+      return titleMatch || phoneMatch;
+    }).toList();
+
+    return Column(
+      children: [
+        // Top App Bar / Header
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back to contacts',
+                onPressed: () {
+                  setState(() {
+                    _selectedContactForDetails = null;
+                  });
+                },
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Contact Info',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                icon: Icon(
+                  contact.isFavorite ? Icons.star : Icons.star_border,
+                  color: contact.isFavorite ? Colors.amber : colorScheme.onSurfaceVariant,
+                ),
+                tooltip: contact.isFavorite ? 'Remove from favorites' : 'Add to favorites',
+                onPressed: () {
+                  widget.syncService.toggleFavorite(contact.id);
+                  setState(() {});
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.share_outlined),
+                tooltip: 'Copy details',
+                onPressed: () {
+                  final details = '${contact.name}\n${contact.phone}';
+                  Clipboard.setData(ClipboardData(text: details));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Contact details copied to clipboard'),
+                      duration: Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+
+        const Divider(height: 1),
+
+        // Scrollable Body
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // 1. Large glowing avatar
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 130,
+                      height: 130,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            colorScheme.primary.withValues(alpha: 0.35),
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                    ),
+                    CircleAvatar(
+                      radius: 52,
+                      backgroundColor: colorScheme.primaryContainer,
+                      backgroundImage: avatarImg,
+                      child: avatarImg != null
+                          ? null
+                          : Text(
+                              contact.initials,
+                              style: TextStyle(
+                                fontSize: 34,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.onPrimaryContainer,
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Name
+                Text(
+                  contact.name,
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSurface,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+
+                // Account / Storage badges
+                if (contact.sourceAccounts.isNotEmpty) ...[
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    children: contact.sourceAccounts.map((acc) {
+                      final isGoogle = acc.toLowerCase().contains('google') || acc.contains('@');
+                      final isSim = acc.toLowerCase().contains('sim');
+                      final icon = isGoogle
+                          ? Icons.account_circle_outlined
+                          : (isSim ? Icons.sim_card_outlined : Icons.phone_android_outlined);
+                      return Chip(
+                        avatar: Icon(icon, size: 16, color: colorScheme.primary),
+                        label: Text(
+                          acc,
+                          style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
+                        ),
+                        backgroundColor: colorScheme.surfaceContainerHigh,
+                        side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
+                // 2. Quick Actions: Call & Text Pill Buttons
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            _initiateCall(contact.phone, displayName: contact.name, photoBase64: contact.photoBase64);
+                          },
+                          icon: const Icon(Icons.call, size: 20),
+                          label: const Text('Call', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: colorScheme.primaryContainer,
+                            foregroundColor: colorScheme.onPrimaryContainer,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            _openSmsForNumber(contact.phone);
+                          },
+                          icon: const Icon(Icons.chat_bubble_outline, size: 20),
+                          label: const Text('Text', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: colorScheme.secondaryContainer,
+                            foregroundColor: colorScheme.onSecondaryContainer,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // 3. Contact Info Card (Phone numbers, emails, addresses)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: Column(
+                    children: [
+                      _buildInfoSectionCard(
+                        title: 'Contact Info',
+                        icon: Icons.info_outline,
+                        child: Column(
+                          children: [
+                            // Phones
+                            if (contact.phones.isNotEmpty)
+                              for (int i = 0; i < contact.phones.length; i++) ...[
+                                if (i > 0)
+                                  Divider(
+                                    height: 1,
+                                    indent: 56,
+                                    endIndent: 16,
+                                    color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                                  ),
+                                _buildPhoneInfoItem(
+                                  phone: contact.phones[i].number,
+                                  label: contact.phones[i].label,
+                                  isPrimary: i == 0,
+                                ),
+                              ]
+                            else
+                              _buildPhoneInfoItem(
+                                phone: contact.phone,
+                                label: 'Mobile',
+                                isPrimary: true,
+                              ),
+
+                            // Emails
+                            if (contact.emails.isNotEmpty)
+                              for (final email in contact.emails) ...[
+                                Divider(
+                                  height: 1,
+                                  indent: 56,
+                                  endIndent: 16,
+                                  color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                                ),
+                                ListTile(
+                                  leading: CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: colorScheme.surfaceContainerHighest,
+                                    child: Icon(Icons.email_outlined, size: 18, color: colorScheme.primary),
+                                  ),
+                                  title: Text(email, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                                  subtitle: const Text('Email', style: TextStyle(fontSize: 12)),
+                                  trailing: IconButton(
+                                    icon: const Icon(Icons.content_copy, size: 18),
+                                    tooltip: 'Copy email',
+                                    onPressed: () {
+                                      Clipboard.setData(ClipboardData(text: email));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Email copied to clipboard'), duration: Duration(seconds: 2)),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+
+                            // Addresses
+                            if (contact.addresses.isNotEmpty)
+                              for (final addr in contact.addresses) ...[
+                                Divider(
+                                  height: 1,
+                                  indent: 56,
+                                  endIndent: 16,
+                                  color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                                ),
+                                ListTile(
+                                  leading: CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: colorScheme.surfaceContainerHighest,
+                                    child: Icon(Icons.location_on_outlined, size: 18, color: colorScheme.primary),
+                                  ),
+                                  title: Text(addr, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                                  subtitle: const Text('Address', style: TextStyle(fontSize: 12)),
+                                  trailing: IconButton(
+                                    icon: const Icon(Icons.content_copy, size: 18),
+                                    tooltip: 'Copy address',
+                                    onPressed: () {
+                                      Clipboard.setData(ClipboardData(text: addr));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Address copied to clipboard'), duration: Duration(seconds: 2)),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // 4. Notes Card
+                      if ((contact.note != null && contact.note!.trim().isNotEmpty) || matchingNotes.isNotEmpty) ...[
+                        _buildInfoSectionCard(
+                          title: 'Notes',
+                          icon: Icons.note_alt_outlined,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (contact.note != null && contact.note!.trim().isNotEmpty) ...[
+                                  Text(
+                                    contact.note!.trim(),
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: colorScheme.onSurface,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                  if (matchingNotes.isNotEmpty) const Divider(height: 20),
+                                ],
+                                for (final n in matchingNotes) ...[
+                                  Text(
+                                    n.title,
+                                    style: TextStyle(fontWeight: FontWeight.bold, color: colorScheme.primary, fontSize: 13),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    n.content,
+                                    style: TextStyle(fontSize: 13.5, color: colorScheme.onSurface),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _formatCallDateHeader(n.timestamp),
+                                    style: TextStyle(fontSize: 11, color: colorScheme.outline),
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // 5. Recent Activity Card (Call history)
+                      _buildInfoSectionCard(
+                        title: matchingLogs.isNotEmpty
+                            ? 'Recent Activity (${matchingLogs.length})'
+                            : 'Recent Activity',
+                        icon: Icons.history,
+                        child: matchingLogs.isNotEmpty
+                            ? Column(
+                                children: [
+                                  for (int i = 0; i < matchingLogs.take(8).length; i++) ...[
+                                    if (i > 0)
+                                      Divider(
+                                        height: 1,
+                                        indent: 56,
+                                        endIndent: 16,
+                                        color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                                      ),
+                                    _buildRecentActivityLogItem(matchingLogs[i]),
+                                  ],
+                                ],
+                              )
+                            : Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.history_toggle_off, color: colorScheme.outline, size: 24),
+                                    const SizedBox(width: 14),
+                                    Text(
+                                      'No recent call activity with this contact',
+                                      style: TextStyle(color: colorScheme.outline, fontSize: 13.5),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // 6. Saved In Card
+                      _buildInfoSectionCard(
+                        title: 'Saved In',
+                        icon: Icons.storage_outlined,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 20,
+                                backgroundColor: colorScheme.surfaceContainerHighest,
+                                child: Icon(
+                                  contact.sourceAccounts.any((a) => a.toLowerCase().contains('google') || a.contains('@'))
+                                      ? Icons.account_circle_outlined
+                                      : (contact.sourceAccounts.any((a) => a.toLowerCase().contains('sim'))
+                                          ? Icons.sim_card_outlined
+                                          : Icons.phone_android_outlined),
+                                  color: colorScheme.primary,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    contact.sourceAccounts.isNotEmpty
+                                        ? contact.sourceAccounts.join(', ')
+                                        : (contact.account?.isNotEmpty == true ? contact.account! : 'Phone Storage'),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Contact storage account',
+                                    style: TextStyle(fontSize: 12, color: colorScheme.outline),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoSectionCard({
+    required String title,
+    required IconData icon,
+    required Widget child,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+          width: 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 16, right: 16, top: 14, bottom: 8),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.primary,
+                    fontSize: 14.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneInfoItem({
+    required String phone,
+    required String label,
+    required bool isPrimary,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: colorScheme.surfaceContainerHighest,
+        child: Icon(Icons.phone_outlined, size: 18, color: colorScheme.primary),
+      ),
+      title: Text(
+        phone,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+      ),
+      subtitle: Text(
+        isPrimary ? '$label • Primary' : label,
+        style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.content_copy, size: 18),
+            tooltip: 'Copy number',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: phone));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Copied $phone to clipboard'),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline, size: 18),
+            tooltip: 'Send SMS',
+            onPressed: () {
+              _openSmsForNumber(phone);
+            },
+          ),
+          const SizedBox(width: 4),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: colorScheme.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              icon: Icon(Icons.call, size: 18, color: colorScheme.onPrimaryContainer),
+              tooltip: 'Call $phone',
+              onPressed: () {
+                _initiateCall(phone, displayName: _selectedContactForDetails?.name, photoBase64: _selectedContactForDetails?.photoBase64);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecentActivityLogItem(SyncedCallLog log) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isMissed = log.type == CallType.missed;
+    final isIncoming = log.type == CallType.incoming;
+
+    final IconData icon = isMissed
+        ? Icons.call_missed
+        : (isIncoming ? Icons.call_received : Icons.call_made);
+    final Color iconColor = isMissed
+        ? colorScheme.error
+        : (isIncoming ? const Color(0xFF4CAF50) : const Color(0xFF2196F3));
+
+    final String typeStr = isMissed
+        ? 'Missed call'
+        : (isIncoming ? 'Incoming call' : 'Outgoing call');
+
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 16,
+        backgroundColor: iconColor.withValues(alpha: 0.12),
+        child: Icon(icon, size: 16, color: iconColor),
+      ),
+      title: Text(
+        typeStr,
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          color: isMissed ? colorScheme.error : colorScheme.onSurface,
+        ),
+      ),
+      subtitle: Text(
+        '${_formatCallDateHeader(log.timestamp)} • ${_formatTime(log.timestamp)}${log.duration.inSeconds > 0 ? " • ${_formatCallDuration(log.duration)}" : ""}',
+        style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.call, size: 18),
+        tooltip: 'Call back',
+        onPressed: () {
+          _initiateCall(log.number, displayName: _selectedContactForDetails?.name ?? (log.name.isNotEmpty ? log.name : log.number), photoBase64: _selectedContactForDetails?.photoBase64);
+        },
       ),
     );
   }
@@ -1463,27 +2969,36 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         ),
                         child: Row(
                           children: [
-                            CircleAvatar(
-                              radius: 22,
-                              backgroundColor: isUnread
-                                  ? colorScheme.primaryContainer
-                                  : colorScheme.surfaceContainerHighest,
-                              child: hasName && thread.contactName.trim().isNotEmpty
-                                  ? Text(
-                                      thread.contactName.trim()[0].toUpperCase(),
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                        color: isUnread
-                                            ? colorScheme.onPrimaryContainer
-                                            : colorScheme.onSurface,
-                                      ),
-                                    )
-                                  : Icon(
-                                      Icons.person,
-                                      size: 22,
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
+                            Builder(
+                              builder: (context) {
+                                final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(thread.phone);
+                                final avatarImg = _getAvatarImage(pfpBase64);
+                                return CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: isUnread
+                                      ? colorScheme.primaryContainer
+                                      : colorScheme.surfaceContainerHighest,
+                                  backgroundImage: avatarImg,
+                                  child: avatarImg != null
+                                      ? null
+                                      : (hasName && thread.contactName.trim().isNotEmpty
+                                          ? Text(
+                                              thread.contactName.trim()[0].toUpperCase(),
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                                color: isUnread
+                                                    ? colorScheme.onPrimaryContainer
+                                                    : colorScheme.onSurface,
+                                              ),
+                                            )
+                                          : Icon(
+                                              Icons.person,
+                                              size: 22,
+                                              color: colorScheme.onSurfaceVariant,
+                                            )),
+                                );
+                              },
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -1602,19 +3117,28 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: colorScheme.primaryContainer,
-                            child: Text(
-                              activeThread.contactName.trim().isNotEmpty
-                                  ? activeThread.contactName.trim()[0].toUpperCase()
-                                  : '?',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: colorScheme.onPrimaryContainer,
-                              ),
-                            ),
+                          Builder(
+                            builder: (context) {
+                              final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(activeThread.phone);
+                              final avatarImg = _getAvatarImage(pfpBase64);
+                              return CircleAvatar(
+                                radius: 16,
+                                backgroundColor: colorScheme.primaryContainer,
+                                backgroundImage: avatarImg,
+                                child: avatarImg != null
+                                    ? null
+                                    : Text(
+                                        activeThread.contactName.trim().isNotEmpty
+                                            ? activeThread.contactName.trim()[0].toUpperCase()
+                                            : '?',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: colorScheme.onPrimaryContainer,
+                                        ),
+                                      ),
+                              );
+                            },
                           ),
                           const SizedBox(width: 10),
                           Column(
@@ -1650,14 +3174,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       color: colorScheme.primary,
                       tooltip: 'Call ${activeThread.contactName}',
                       onPressed: () {
-                        widget.syncService.makeCall(activeThread.phone);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Placing call to ${activeThread.contactName} (${activeThread.phone})...'),
-                            duration: const Duration(seconds: 2),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        );
+                        _initiateCall(activeThread.phone, displayName: activeThread.contactName);
                       },
                     ),
                   ],
@@ -2238,6 +3755,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       globalPosition: position,
       items: [
         _buildMenuItem(
+          value: 'view_contact',
+          icon: Icons.person_outline,
+          label: 'View Contact Info',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
           value: 'call',
           icon: Icons.call,
           label: 'Call',
@@ -2265,15 +3788,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       ],
       onSelected: (action) {
         switch (action) {
+          case 'view_contact':
+            setState(() {
+              _selectedIndex = 2;
+              _selectedContactForDetails = contact;
+            });
+            break;
           case 'call':
-            widget.syncService.makeCall(contact.phone);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Placing call to ${contact.name} (${contact.phone})...'),
-                duration: const Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            _initiateCall(contact.phone, displayName: contact.name, photoBase64: contact.photoBase64);
             break;
           case 'sms':
             _openSmsForNumber(contact.phone);
@@ -2316,6 +3838,13 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       context: context,
       globalPosition: position,
       items: [
+        if (matchingContact != null)
+          _buildMenuItem(
+            value: 'view_contact',
+            icon: Icons.person_outline,
+            label: 'View Contact Info',
+            iconColor: colorScheme.primary,
+          ),
         _buildMenuItem(
           value: 'call',
           icon: Icons.call,
@@ -2363,15 +3892,16 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       ],
       onSelected: (action) {
         switch (action) {
+          case 'view_contact':
+            if (matchingContact != null) {
+              setState(() {
+                _selectedIndex = 2;
+                _selectedContactForDetails = matchingContact;
+              });
+            }
+            break;
           case 'call':
-            widget.syncService.makeCall(log.number);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Placing call to $displayName (${log.number})...'),
-                duration: const Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            _initiateCall(log.number, displayName: displayName);
             break;
           case 'sms':
             _openSmsForNumber(log.number);
@@ -2428,6 +3958,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       globalPosition: position,
       items: [
         _buildMenuItem(
+          value: 'view_contact',
+          icon: Icons.person_outline,
+          label: 'View Contact Info',
+          iconColor: colorScheme.primary,
+        ),
+        _buildMenuItem(
           value: 'call',
           icon: Icons.call,
           label: 'Call',
@@ -2467,15 +4003,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       ],
       onSelected: (action) {
         switch (action) {
+          case 'view_contact':
+            setState(() {
+              _selectedIndex = 2;
+              _selectedContactForDetails = contact;
+            });
+            break;
           case 'call':
-            widget.syncService.makeCall(contact.phone);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Placing call to ${contact.name} (${contact.phone})...'),
-                duration: const Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            _initiateCall(contact.phone, displayName: contact.name, photoBase64: contact.photoBase64);
             break;
           case 'sms':
             _openSmsForNumber(contact.phone);
@@ -2567,14 +4102,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             });
             break;
           case 'call':
-            widget.syncService.makeCall(thread.phone);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Placing call to $displayName (${thread.phone})...'),
-                duration: const Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            _initiateCall(thread.phone, displayName: displayName);
             break;
           case 'copy_number':
             Clipboard.setData(ClipboardData(text: thread.phone));
