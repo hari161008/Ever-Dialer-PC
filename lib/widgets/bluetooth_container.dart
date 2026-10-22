@@ -1,36 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/bluetooth_service.dart';
+import '../services/sync_service.dart';
 
 class BluetoothContainer extends StatelessWidget {
   final BluetoothState state;
   final ValueChanged<bool> onToggle;
   final ValueChanged<String> onDisconnect;
+  final PcSyncService? syncService;
 
   const BluetoothContainer({
     super.key,
     required this.state,
     required this.onToggle,
     required this.onDisconnect,
+    this.syncService,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isEnabled = state.speakerModeEnabled;
+    final isEnabled = state.speakerModeEnabled || (syncService?.pcSyncEnabled ?? false);
 
     return Card(
       elevation: 0,
       color: colorScheme.surfaceContainer,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(28),
-        side: BorderSide(
-          color: isEnabled
-              ? colorScheme.primary.withValues(alpha: 0.3)
-              : colorScheme.outlineVariant,
-          width: 1.2,
-        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(22.0),
@@ -68,7 +65,7 @@ class BluetoothContainer extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Bluetooth Connection',
+                        'Bluetooth Connection & Sync',
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: colorScheme.onSurface,
@@ -76,7 +73,9 @@ class BluetoothContainer extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Use this PC as a wireless media speaker for your phone',
+                        isEnabled
+                            ? 'Syncing with Ever Dialer Mobile and streaming phone audio'
+                            : 'Sync phone data and use this PC as a wireless media speaker',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
@@ -196,6 +195,34 @@ class BluetoothContainer extends StatelessWidget {
                 ),
               ),
 
+            if (syncService != null && syncService!.isConnected)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: colorScheme.tertiaryContainer,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.sync,
+                      size: 14,
+                      color: colorScheme.onTertiaryContainer,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Sync Active',
+                      style: TextStyle(
+                        color: colorScheme.onTertiaryContainer,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             // Broadcast Name Pill
             InkWell(
               borderRadius: BorderRadius.circular(999),
@@ -214,7 +241,6 @@ class BluetoothContainer extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: colorScheme.outlineVariant),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -247,9 +273,6 @@ class BluetoothContainer extends StatelessWidget {
             decoration: BoxDecoration(
               color: colorScheme.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: colorScheme.primary.withValues(alpha: 0.2),
-              ),
             ),
             child: Row(
               children: [
@@ -368,7 +391,7 @@ class BluetoothContainer extends StatelessWidget {
                   context,
                   step: '3',
                   text:
-                      'Play YouTube, Spotify, podcasts, or videos on your phone — audio will stream right here!',
+                      'Open Ever Dialer on your phone to sync data & stream audio to PC speakers!',
                 ),
               ],
             ),
@@ -446,7 +469,7 @@ class BluetoothContainer extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                'Media Speaker Mode Disabled',
+                'Bluetooth & Sync Disabled',
                 style: TextStyle(
                   color: colorScheme.outline,
                   fontWeight: FontWeight.w600,
@@ -458,7 +481,7 @@ class BluetoothContainer extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(
-          'Turn on the toggle above to make this PC discoverable and accept wireless audio streaming from your mobile device.',
+          'Turn on the toggle above to connect with Ever Dialer Mobile for data sync and wireless audio streaming.',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: colorScheme.onSurfaceVariant,
           ),

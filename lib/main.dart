@@ -3,6 +3,7 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/bluetooth_service.dart';
 import 'services/sync_service.dart';
+import 'services/system_service.dart';
 import 'screens/settings_screen.dart';
 import 'widgets/mobile_landscape_layout.dart';
 
@@ -18,12 +19,14 @@ const _fallbackAccentColor = Color(0xFFFFDD31);
 class EverDialerApp extends StatefulWidget {
   final BluetoothService? bluetoothService;
   final PcSyncService? syncService;
+  final SystemService? systemService;
   final SharedPreferences? prefs;
 
   const EverDialerApp({
     super.key,
     this.bluetoothService,
     this.syncService,
+    this.systemService,
     this.prefs,
   });
 
@@ -111,48 +114,43 @@ class _EverDialerAppState extends State<EverDialerApp> {
             useMaterial3: true,
             colorScheme: lightColorScheme,
             scaffoldBackgroundColor: lightColorScheme.surface,
+            iconTheme: IconThemeData(
+              size: (22 * _displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
+            ),
+            visualDensity: VisualDensity(
+              horizontal: ((_displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+              vertical: ((_displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+            ),
           ),
           darkTheme: ThemeData(
             useMaterial3: true,
             colorScheme: darkColorScheme,
             scaffoldBackgroundColor: darkColorScheme.surface,
+            iconTheme: IconThemeData(
+              size: (22 * _displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
+            ),
+            visualDensity: VisualDensity(
+              horizontal: ((_displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+              vertical: ((_displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+            ),
           ),
           builder: (context, child) {
             if (child == null) return const SizedBox.shrink();
             final mediaQuery = MediaQuery.of(context);
-            final scaledSize = Size(
-              mediaQuery.size.width / _displayScale,
-              mediaQuery.size.height / _displayScale,
-            );
-            final scaledMediaQuery = mediaQuery.copyWith(
-              size: scaledSize,
-              textScaler: TextScaler.linear(_fontScale),
-            );
-
-            Widget content = MediaQuery(
-              data: scaledMediaQuery,
+            final effectiveDisplay = _displayScale.clamp(0.25, 2.0);
+            return MediaQuery(
+              data: mediaQuery.copyWith(
+                textScaler: TextScaler.linear(_fontScale * effectiveDisplay),
+              ),
               child: child,
             );
-
-            if ((_displayScale - 1.0).abs() > 0.001) {
-              content = Transform.scale(
-                scale: _displayScale,
-                alignment: Alignment.topCenter,
-                child: SizedBox(
-                  width: scaledSize.width,
-                  height: scaledSize.height,
-                  child: content,
-                ),
-              );
-            }
-
-            return content;
           },
           home: EverDialerHomePage(
             themeMode: _themeMode,
             onToggleTheme: _toggleTheme,
             bluetoothService: widget.bluetoothService,
             syncService: widget.syncService,
+            systemService: widget.systemService,
             prefs: widget.prefs,
             displayScale: _displayScale,
             fontScale: _fontScale,
@@ -172,6 +170,7 @@ class EverDialerHomePage extends StatefulWidget {
   final VoidCallback onToggleTheme;
   final BluetoothService? bluetoothService;
   final PcSyncService? syncService;
+  final SystemService? systemService;
   final SharedPreferences? prefs;
   final double displayScale;
   final double fontScale;
@@ -186,6 +185,7 @@ class EverDialerHomePage extends StatefulWidget {
     required this.onToggleTheme,
     this.bluetoothService,
     this.syncService,
+    this.systemService,
     this.prefs,
     this.displayScale = 1.0,
     this.fontScale = 1.0,
@@ -204,6 +204,8 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
   late final bool _ownsService;
   late final PcSyncService _syncService;
   late final bool _ownsSyncService;
+  late final SystemService _systemService;
+  late final bool _ownsSystemService;
 
   @override
   void initState() {
@@ -223,6 +225,27 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
       _syncService = PcSyncService(prefs: widget.prefs);
       _ownsSyncService = true;
     }
+
+    if (widget.systemService != null) {
+      _systemService = widget.systemService!;
+      _ownsSystemService = false;
+    } else {
+      _systemService = SystemService(prefs: widget.prefs);
+      _ownsSystemService = true;
+    }
+
+    // Keep both services aligned as one unified feature
+    final syncEnabled = _syncService.pcSyncEnabled;
+    final speakerEnabled = _bluetoothService.state.speakerModeEnabled;
+    if (syncEnabled != speakerEnabled) {
+      final unified = syncEnabled || speakerEnabled;
+      if (syncEnabled != unified) {
+        _syncService.setPcSyncEnabled(unified);
+      }
+      if (speakerEnabled != unified) {
+        _bluetoothService.toggleSpeakerMode(unified);
+      }
+    }
   }
 
   @override
@@ -232,6 +255,9 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
     }
     if (_ownsSyncService) {
       _syncService.dispose();
+    }
+    if (_ownsSystemService) {
+      _systemService.dispose();
     }
     super.dispose();
   }
@@ -243,6 +269,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
         builder: (_) => SettingsScreen(
           bluetoothService: _bluetoothService,
           syncService: _syncService,
+          systemService: _systemService,
           themeMode: widget.themeMode,
           onToggleTheme: widget.onToggleTheme,
           displayScale: widget.displayScale,
@@ -262,14 +289,15 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
     final colorScheme = theme.colorScheme;
 
     return ListenableBuilder(
-      listenable: _syncService,
+      listenable: Listenable.merge([_syncService, _bluetoothService]),
       builder: (context, _) {
-        final isSyncEnabled = _syncService.pcSyncEnabled;
+        final isUnifiedEnabled =
+            _syncService.pcSyncEnabled || _bluetoothService.state.speakerModeEnabled;
 
-        // When Bluetooth PC Sync is enabled:
+        // When Bluetooth Connection & Sync is enabled:
         // Render the complete Mobile Ever Dialer landscape main screen layout!
         // The old speaker status and about are completely removed from the main screen.
-        if (isSyncEnabled) {
+        if (isUnifiedEnabled) {
           return Scaffold(
             appBar: AppBar(
               title: Text(
@@ -279,6 +307,14 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                   color: colorScheme.onSurface,
                 ),
               ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: 'Settings',
+                  onPressed: _openSettings,
+                ),
+                const SizedBox(width: 8),
+              ],
             ),
             body: MobileLandscapeLayout(
               syncService: _syncService,
@@ -287,7 +323,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
           );
         }
 
-        // When Bluetooth PC Sync is disabled: render standard dashboard
+        // When Bluetooth Connection & Sync is disabled: render standard dashboard
         return Scaffold(
           appBar: AppBar(
             title: Text(
@@ -324,12 +360,6 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                       color: colorScheme.surfaceContainer,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(28),
-                        side: BorderSide(
-                          color: isEnabled
-                              ? colorScheme.primary.withValues(alpha: 0.3)
-                              : colorScheme.outlineVariant,
-                          width: 1.2,
-                        ),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(24.0),
@@ -363,7 +393,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Media Speaker Status',
+                                        'Bluetooth Connection & Sync',
                                         style: theme.textTheme.titleMedium?.copyWith(
                                           fontWeight: FontWeight.bold,
                                           color: colorScheme.onSurface,
@@ -389,7 +419,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                                         ),
                                       ] else ...[
                                         Text(
-                                          'Speaker mode is currently OFF',
+                                          'Bluetooth connection & sync are currently OFF',
                                           style: TextStyle(
                                             color: colorScheme.onSurfaceVariant,
                                             fontSize: 13,
@@ -415,7 +445,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                                   child: FilledButton.tonalIcon(
                                     onPressed: _openSettings,
                                     icon: const Icon(Icons.tune, size: 18),
-                                    label: const Text('Bluetooth & Speaker Settings'),
+                                    label: const Text('Bluetooth & Sync Settings'),
                                     style: FilledButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(vertical: 14),
                                       shape: RoundedRectangleBorder(
@@ -439,10 +469,6 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                       color: colorScheme.surfaceContainer,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(24),
-                        side: BorderSide(
-                          color: colorScheme.outlineVariant,
-                          width: 1.2,
-                        ),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(20.0),
@@ -464,14 +490,14 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                             ),
                             const SizedBox(height: 10),
                             Text(
-                              'Ever Dialer PC connects with Ever Dialer Mobile over Bluetooth. Enable "Bluetooth PC Sync" in Settings to display the full Mobile landscape view.',
+                              'Ever Dialer PC connects with Ever Dialer Mobile over Bluetooth. Turn on "Bluetooth Connection & Sync" in Settings to sync data and display the full Mobile landscape view.',
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: colorScheme.onSurfaceVariant,
                               ),
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Click the Settings icon at the top right to configure Bluetooth PC Sync, speaker mode, audio output, or appearance.',
+                              'Click the Settings icon at the top right to configure Bluetooth Connection & Sync, audio output, or appearance.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: colorScheme.outline,
                               ),

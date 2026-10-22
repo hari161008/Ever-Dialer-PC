@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/bluetooth_service.dart';
 import '../services/sync_service.dart';
+import '../services/system_service.dart';
 import '../widgets/bluetooth_container.dart';
 import '../widgets/audio_status_card.dart';
 
@@ -15,6 +16,7 @@ class SettingsScreen extends StatelessWidget {
   final VoidCallback? onResetDisplayScale;
   final VoidCallback? onResetFontScale;
   final PcSyncService? syncService;
+  final SystemService? systemService;
 
   const SettingsScreen({
     super.key,
@@ -28,6 +30,7 @@ class SettingsScreen extends StatelessWidget {
     this.onResetDisplayScale,
     this.onResetFontScale,
     this.syncService,
+    this.systemService,
   });
 
   IconData _getThemeIcon() {
@@ -60,6 +63,11 @@ class SettingsScreen extends StatelessWidget {
     required double value,
     required ValueChanged<double>? onChanged,
     required VoidCallback? onReset,
+    double min = 0.8,
+    double max = 1.5,
+    int divisions = 14,
+    String minLabel = '80%',
+    String maxLabel = '150%',
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -143,10 +151,10 @@ class SettingsScreen extends StatelessWidget {
             overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
           ),
           child: Slider(
-            value: value.clamp(0.8, 1.5),
-            min: 0.8,
-            max: 1.5,
-            divisions: 14,
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            divisions: divisions,
             label: percentText,
             onChanged: onChanged,
           ),
@@ -157,7 +165,7 @@ class SettingsScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '80%',
+                minLabel,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: colorScheme.outline,
                 ),
@@ -170,7 +178,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
               Text(
-                '150%',
+                maxLabel,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: colorScheme.outline,
                 ),
@@ -220,7 +228,11 @@ class SettingsScreen extends StatelessWidget {
         ],
       ),
       body: ListenableBuilder(
-        listenable: bluetoothService,
+        listenable: Listenable.merge([
+          bluetoothService,
+          if (syncService != null) syncService!,
+          if (systemService != null) systemService!,
+        ]),
         builder: (context, _) {
           final state = bluetoothService.state;
 
@@ -229,113 +241,25 @@ class SettingsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 0. Bluetooth PC Sync Card
-                if (syncService != null) ...[
-                  ListenableBuilder(
-                    listenable: syncService!,
-                    builder: (context, _) {
-                      final isSyncEnabled = syncService!.pcSyncEnabled;
-                      return Card(
-                        elevation: 0,
-                        color: colorScheme.surfaceContainer,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          side: BorderSide(
-                            color: isSyncEnabled
-                                ? colorScheme.primary.withValues(alpha: 0.3)
-                                : colorScheme.outlineVariant,
-                            width: 1.2,
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20.0),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: isSyncEnabled
-                                      ? colorScheme.primaryContainer
-                                      : colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Icon(
-                                  Icons.sync,
-                                  color: isSyncEnabled
-                                      ? colorScheme.primary
-                                      : colorScheme.outline,
-                                  size: 22,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Bluetooth PC Sync',
-                                      style: theme.textTheme.titleMedium?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        color: colorScheme.onSurface,
-                                      ),
-                                    ),
-                                    Text(
-                                      isSyncEnabled
-                                          ? 'Syncing with Ever Dialer Mobile (Landscape view active)'
-                                          : 'Display Mobile landscape main screen & sync data',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Switch(
-                                value: isSyncEnabled,
-                                onChanged: (val) {
-                                  syncService!.setPcSyncEnabled(val);
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 18),
-                ],
-
-                // 1. Primary Container: "Bluetooth Connection"
+                // 1. Primary Unified Container: "Bluetooth Connection & Sync"
                 BluetoothContainer(
                   state: state,
-                  onToggle: (enable) => bluetoothService.toggleSpeakerMode(enable),
+                  syncService: syncService,
+                  onToggle: (enable) {
+                    bluetoothService.toggleSpeakerMode(enable);
+                    syncService?.setPcSyncEnabled(enable);
+                  },
                   onDisconnect: (mac) => bluetoothService.disconnectDevice(mac),
                 ),
 
                 const SizedBox(height: 18),
 
-                // 2. Audio Output & Unmute Card
-                AudioStatusCard(
-                  state: state,
-                  onUnmute: () => bluetoothService.unmuteSpeaker(),
-                  onVolumeChanged: (vol) => bluetoothService.setVolume(vol),
-                  onRepairAudio: () => bluetoothService.repairAudioRouting(),
-                  onSelectSink: (sink) => bluetoothService.setOutputSink(sink),
-                ),
-
-                const SizedBox(height: 18),
-
-                // 3. Theme & Appearance Card
+                // 2. Theme & Appearance Card (below Bluetooth Connection container)
                 Card(
                   elevation: 0,
                   color: colorScheme.surfaceContainer,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(24),
-                    side: BorderSide(
-                      color: colorScheme.outlineVariant,
-                      width: 1.2,
-                    ),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(20.0),
@@ -399,7 +323,7 @@ class SettingsScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 16),
 
-                        // Display scale slider
+                        // Display scale slider (0% to 200%, default 100%)
                         _buildScaleSlider(
                           context: context,
                           icon: Icons.aspect_ratio,
@@ -408,6 +332,11 @@ class SettingsScreen extends StatelessWidget {
                           value: displayScale,
                           onChanged: onUpdateDisplayScale,
                           onReset: onResetDisplayScale,
+                          min: 0.0,
+                          max: 2.0,
+                          divisions: 40,
+                          minLabel: '0%',
+                          maxLabel: '200%',
                         ),
 
                         const SizedBox(height: 16),
@@ -427,10 +356,133 @@ class SettingsScreen extends StatelessWidget {
                           value: fontScale,
                           onChanged: onUpdateFontScale,
                           onReset: onResetFontScale,
+                          min: 0.5,
+                          max: 2.0,
+                          divisions: 30,
+                          minLabel: '50%',
+                          maxLabel: '200%',
                         ),
                       ],
                     ),
                   ),
+                ),
+
+                const SizedBox(height: 18),
+
+                // 3. System & Startup Card
+                if (systemService != null) ...[
+                  Card(
+                    elevation: 0,
+                    color: colorScheme.surfaceContainer,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(
+                                  Icons.power_settings_new,
+                                  color: colorScheme.primary,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'System & Startup',
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Autostart and background tray integration',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              'Autostart',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            subtitle: Text(
+                              'Launch Ever Dialer automatically when logging in',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            value: systemService!.autostartEnabled,
+                            onChanged: (val) => systemService!.setAutostartEnabled(val),
+                          ),
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              'Show in system tray',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            subtitle: Text(
+                              'Keep running in the system tray when window is closed',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            value: systemService!.systemTrayEnabled,
+                            onChanged: (val) => systemService!.setSystemTrayEnabled(val),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+
+                // 4. Audio Output & Unmute Card
+                AudioStatusCard(
+                  state: state,
+                  onUnmute: () => bluetoothService.unmuteSpeaker(),
+                  onVolumeChanged: (vol) => bluetoothService.setVolume(vol),
+                  onRepairAudio: () => bluetoothService.repairAudioRouting(),
+                  onSelectSink: (sink) => bluetoothService.setOutputSink(sink),
                 ),
 
                 const SizedBox(height: 24),

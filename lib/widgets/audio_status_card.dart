@@ -44,12 +44,6 @@ class AudioStatusCard extends StatelessWidget {
       color: colorScheme.surfaceContainer,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: BorderSide(
-          color: (isMuted || hasProfileIssue)
-              ? colorScheme.error.withValues(alpha: 0.4)
-              : colorScheme.outlineVariant,
-          width: 1.2,
-        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(20.0),
@@ -173,10 +167,6 @@ class AudioStatusCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: colorScheme.outlineVariant
-                                .withValues(alpha: 0.5),
-                          ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -253,9 +243,6 @@ class AudioStatusCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: colorScheme.errorContainer.withValues(alpha: 0.4),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: colorScheme.error.withValues(alpha: 0.3),
-                  ),
                 ),
                 child: Row(
                   children: [
@@ -309,7 +296,7 @@ class AudioStatusCard extends StatelessWidget {
             // Repair / Reset PipeWire Action Button
             if (onRepairAudio != null) ...[
               const SizedBox(height: 12),
-              OutlinedButton.icon(
+              FilledButton.tonalIcon(
                 onPressed: () {
                   onRepairAudio!();
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -323,11 +310,8 @@ class AudioStatusCard extends StatelessWidget {
                 },
                 icon: const Icon(Icons.build_circle_outlined, size: 18),
                 label: const Text('Fix PipeWire Audio Routing'),
-                style: OutlinedButton.styleFrom(
+                style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  side: BorderSide(
-                    color: colorScheme.outlineVariant,
-                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),

@@ -206,12 +206,16 @@ class SyncedSmsMessage {
   final String body;
   final DateTime timestamp;
   final bool isOutgoing;
+  final bool isPinned;
+  final bool isStarred;
 
   const SyncedSmsMessage({
     required this.id,
     required this.body,
     required this.timestamp,
     required this.isOutgoing,
+    this.isPinned = false,
+    this.isStarred = false,
   });
 
   factory SyncedSmsMessage.fromJson(Map<String, dynamic> json) {
@@ -228,6 +232,8 @@ class SyncedSmsMessage {
       body: json['body']?.toString() ?? '',
       timestamp: time,
       isOutgoing: json['isOutgoing'] == true,
+      isPinned: json['isPinned'] == true,
+      isStarred: json['isStarred'] == true,
     );
   }
 
@@ -236,6 +242,8 @@ class SyncedSmsMessage {
     'body': body,
     'timestamp': timestamp.millisecondsSinceEpoch,
     'isOutgoing': isOutgoing,
+    'isPinned': isPinned,
+    'isStarred': isStarred,
   };
 }
 
@@ -246,6 +254,7 @@ class SyncedSmsThread {
   final String snippet;
   final DateTime timestamp;
   final int unreadCount;
+  final bool isPinned;
   final List<SyncedSmsMessage> messages;
 
   const SyncedSmsThread({
@@ -255,6 +264,7 @@ class SyncedSmsThread {
     required this.snippet,
     required this.timestamp,
     this.unreadCount = 0,
+    this.isPinned = false,
     required this.messages,
   });
 
@@ -283,6 +293,7 @@ class SyncedSmsThread {
       snippet: json['snippet']?.toString() ?? (msgs.isNotEmpty ? msgs.last.body : ''),
       timestamp: time,
       unreadCount: (json['unreadCount'] is int) ? json['unreadCount'] as int : 0,
+      isPinned: json['isPinned'] == true,
       messages: msgs,
     );
   }
@@ -294,6 +305,7 @@ class SyncedSmsThread {
     'snippet': snippet,
     'timestamp': timestamp.millisecondsSinceEpoch,
     'unreadCount': unreadCount,
+    'isPinned': isPinned,
     'messages': messages.map((m) => m.toJson()).toList(),
   };
 }
@@ -398,6 +410,65 @@ class PcSyncService extends ChangeNotifier {
   List<SyncedSmsThread> get smsThreads => List.unmodifiable(_smsThreads);
   List<SyncedNote> get notes => List.unmodifiable(_notes);
 
+  Set<String> _starredSmsMessageIds = {};
+  Set<String> _pinnedSmsMessageIds = {};
+  Set<String> _pinnedSmsThreadIds = {};
+
+  bool isMessageStarred(String msgId) => _starredSmsMessageIds.contains(msgId);
+  bool isMessagePinned(String msgId) => _pinnedSmsMessageIds.contains(msgId);
+
+  bool isThreadPinned(String threadId) {
+    if (_pinnedSmsThreadIds.contains(threadId)) return true;
+    final thread = _smsThreads.cast<SyncedSmsThread?>().firstWhere(
+      (t) => t?.id == threadId,
+      orElse: () => null,
+    );
+    return thread?.isPinned ?? false;
+  }
+
+  bool isThreadStarred(String threadId) {
+    final thread = _smsThreads.cast<SyncedSmsThread?>().firstWhere(
+      (t) => t?.id == threadId,
+      orElse: () => null,
+    );
+    if (thread == null) return false;
+    return thread.messages.any((m) => isMessageStarred(m.id));
+  }
+
+  void toggleStarMessage(String msgId) {
+    final willStar = !_starredSmsMessageIds.contains(msgId);
+    if (willStar) {
+      _starredSmsMessageIds.add(msgId);
+    } else {
+      _starredSmsMessageIds.remove(msgId);
+    }
+    _prefs?.setStringList('starred_sms_messages', _starredSmsMessageIds.toList());
+    notifyListeners();
+
+    _sendCommand({
+      'cmd': 'star_sms_message',
+      'messageId': msgId,
+      'starred': willStar,
+    });
+  }
+
+  void togglePinMessage(String msgId) {
+    final willPin = !_pinnedSmsMessageIds.contains(msgId);
+    if (willPin) {
+      _pinnedSmsMessageIds.add(msgId);
+    } else {
+      _pinnedSmsMessageIds.remove(msgId);
+    }
+    _prefs?.setStringList('pinned_sms_messages', _pinnedSmsMessageIds.toList());
+    notifyListeners();
+
+    _sendCommand({
+      'cmd': 'pin_sms_message',
+      'messageId': msgId,
+      'pinned': willPin,
+    });
+  }
+
   Process? _daemonProcess;
   StreamSubscription? _stdoutSub;
 
@@ -425,6 +496,13 @@ class PcSyncService extends ChangeNotifier {
   }
 
   void _loadCachedData() {
+    final starred = _prefs?.getStringList('starred_sms_messages');
+    if (starred != null) _starredSmsMessageIds = starred.toSet();
+    final pinned = _prefs?.getStringList('pinned_sms_messages');
+    if (pinned != null) _pinnedSmsMessageIds = pinned.toSet();
+    final pinnedThreads = _prefs?.getStringList('pinned_sms_threads');
+    if (pinnedThreads != null) _pinnedSmsThreadIds = pinnedThreads.toSet();
+
     final cached = _prefs?.getString(_prefCachedDataKey);
     if (cached != null && cached.isNotEmpty) {
       try {
@@ -619,6 +697,36 @@ class PcSyncService extends ChangeNotifier {
             .toList();
       } else {
         _smsThreads = [];
+      }
+    }
+
+    // Sync pinned and starred IDs from payload and individual messages
+    for (final thread in _smsThreads) {
+      if (thread.isPinned) _pinnedSmsThreadIds.add(thread.id);
+      for (final msg in thread.messages) {
+        if (msg.isPinned) _pinnedSmsMessageIds.add(msg.id);
+        if (msg.isStarred) _starredSmsMessageIds.add(msg.id);
+      }
+    }
+    if (payload.containsKey('starredSmsMessageIds')) {
+      final list = payload['starredSmsMessageIds'];
+      if (list is List) {
+        _starredSmsMessageIds.addAll(list.map((e) => e.toString()));
+        _prefs?.setStringList('starred_sms_messages', _starredSmsMessageIds.toList());
+      }
+    }
+    if (payload.containsKey('pinnedSmsMessageIds')) {
+      final list = payload['pinnedSmsMessageIds'];
+      if (list is List) {
+        _pinnedSmsMessageIds.addAll(list.map((e) => e.toString()));
+        _prefs?.setStringList('pinned_sms_messages', _pinnedSmsMessageIds.toList());
+      }
+    }
+    if (payload.containsKey('pinnedSmsThreadIds')) {
+      final list = payload['pinnedSmsThreadIds'];
+      if (list is List) {
+        _pinnedSmsThreadIds.addAll(list.map((e) => e.toString()));
+        _prefs?.setStringList('pinned_sms_threads', _pinnedSmsThreadIds.toList());
       }
     }
 
@@ -930,28 +1038,85 @@ class PcSyncService extends ChangeNotifier {
     }
   }
 
-  void toggleSmsRead(String threadId) {
+  void markSmsAsRead(String threadId) {
     final index = _smsThreads.indexWhere((t) => t.id == threadId);
     if (index != -1) {
       final thread = _smsThreads[index];
-      final newUnread = thread.unreadCount > 0 ? 0 : 1;
-      _smsThreads[index] = SyncedSmsThread(
+      if (thread.unreadCount > 0) {
+        _smsThreads[index] = SyncedSmsThread(
+          id: thread.id,
+          contactName: thread.contactName,
+          phone: thread.phone,
+          snippet: thread.snippet,
+          timestamp: thread.timestamp,
+          unreadCount: 0,
+          messages: thread.messages,
+        );
+        _saveCachedData();
+        notifyListeners();
+
+        _sendCommand({
+          'cmd': 'mark_sms_read',
+          'threadId': threadId,
+        });
+      }
+    }
+  }
+
+  void markSmsAsUnread(String threadId) {
+    final index = _smsThreads.indexWhere((t) => t.id == threadId);
+    if (index != -1) {
+      final thread = _smsThreads[index];
+      if (thread.unreadCount == 0) {
+        _smsThreads[index] = SyncedSmsThread(
+          id: thread.id,
+          contactName: thread.contactName,
+          phone: thread.phone,
+          snippet: thread.snippet,
+          timestamp: thread.timestamp,
+          unreadCount: 1,
+          messages: thread.messages,
+        );
+        _saveCachedData();
+        notifyListeners();
+      }
+    }
+  }
+
+  void deleteSmsMessage(String threadId, String messageId) {
+    final tIndex = _smsThreads.indexWhere((t) => t.id == threadId);
+    if (tIndex != -1) {
+      final thread = _smsThreads[tIndex];
+      final updatedMsgs = thread.messages.where((m) => m.id != messageId).toList();
+      _smsThreads[tIndex] = SyncedSmsThread(
         id: thread.id,
         contactName: thread.contactName,
         phone: thread.phone,
-        snippet: thread.snippet,
-        timestamp: thread.timestamp,
-        unreadCount: newUnread,
-        messages: thread.messages,
+        snippet: updatedMsgs.isNotEmpty ? updatedMsgs.last.body : '',
+        timestamp: updatedMsgs.isNotEmpty ? updatedMsgs.last.timestamp : thread.timestamp,
+        unreadCount: thread.unreadCount,
+        messages: updatedMsgs,
       );
       _saveCachedData();
       notifyListeners();
 
       _sendCommand({
-        'cmd': 'mark_sms_read',
+        'cmd': 'delete_sms_message',
         'threadId': threadId,
-        'read': newUnread == 0,
+        'messageId': messageId,
       });
+    }
+  }
+
+  void toggleSmsRead(String threadId) {
+    final index = _smsThreads.indexWhere((t) => t.id == threadId);
+    if (index != -1) {
+      final thread = _smsThreads[index];
+      if (thread.unreadCount > 0) {
+        markSmsAsRead(threadId);
+      } else {
+        markSmsAsUnread(threadId);
+      }
     }
   }
 

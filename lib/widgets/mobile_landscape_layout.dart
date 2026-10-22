@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/sync_service.dart';
@@ -29,8 +31,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   SyncedContact? _selectedContactForDetails;
 
   // SMS tab state
+  String _selectedSmsCategory = 'all'; // all, favourites, starred, contacts, unknown, otp
   String? _selectedSmsThreadId;
   final TextEditingController _smsInputController = TextEditingController();
+
+  static final RegExp _otpRegex = RegExp(
+    r'\b(otp|passcode|one[- ]time (?:password|passcode|code)|(?:verification|authentication|auth|security|secret|login|access|confirmation)[- ](?:code|pin|password)|your\s+(?:\w+\s+)?code\s+is|is\s+your\s+(?:\w+\s+)?(?:code|pin)|\d{4,8}\s+is\s+your|use\s+code\s+\d{4,8}|enter\s+(?:this\s+)?otp)\b|(?:\b(?:code|pin|otp)\s*[:=]\s*\d{4,8}\b)',
+    caseSensitive: false,
+  );
 
   // Notes tab state
   String _notesSearchQuery = '';
@@ -113,10 +121,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               color: colorScheme.surfaceContainerHigh,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(32),
-                side: BorderSide(
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.35),
-                  width: 1,
-                ),
               ),
               elevation: 12,
               child: Padding(
@@ -160,10 +164,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       decoration: BoxDecoration(
                         color: colorScheme.primaryContainer,
                         borderRadius: BorderRadius.circular(26),
-                        border: Border.all(
-                          color: colorScheme.primary.withValues(alpha: 0.2),
-                          width: 2,
-                        ),
                         boxShadow: [
                           BoxShadow(
                             color: colorScheme.primary.withValues(alpha: 0.1),
@@ -544,10 +544,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               color: colorScheme.surfaceContainerHigh,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(28),
-                side: BorderSide(
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.35),
-                  width: 1,
-                ),
               ),
               elevation: 10,
               child: Padding(
@@ -777,10 +773,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     color: colorScheme.surfaceContainerHigh,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(32),
-                      side: BorderSide(
-                        color: colorScheme.outlineVariant.withValues(alpha: 0.35),
-                        width: 1,
-                      ),
                     ),
                     elevation: 12,
                     clipBehavior: Clip.antiAlias,
@@ -1251,8 +1243,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     );
   }
 
-  void _showNewMessageDialog(BuildContext context) {
-    final phoneCtrl = TextEditingController();
+  void _showNewMessageDialog(BuildContext context, {String? initialNumber}) {
+    final phoneCtrl = TextEditingController(text: initialNumber ?? '');
     final msgCtrl = TextEditingController();
 
     showDialog(
@@ -1449,9 +1441,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       color: colorScheme.surfaceContainer,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
-                        side: BorderSide(
-                          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-                        ),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(12.0),
@@ -1734,10 +1723,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                             decoration: BoxDecoration(
                               color: colorScheme.surfaceContainerLow,
                               borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                color: colorScheme.outlineVariant.withValues(alpha: 0.25),
-                                width: 1,
-                              ),
                             ),
                             clipBehavior: Clip.antiAlias,
                             child: Column(
@@ -1874,12 +1859,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         ? const Color(0xFF00897B).withValues(alpha: 0.18)
                         : const Color(0xFFE65100).withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: log.simSlot == 1
-                          ? const Color(0xFF00897B).withValues(alpha: 0.4)
-                          : const Color(0xFFE65100).withValues(alpha: 0.4),
-                      width: 0.8,
-                    ),
                   ),
                   child: Text(
                     'SIM ${log.simSlot}',
@@ -2104,10 +2083,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         decoration: BoxDecoration(
                           color: colorScheme.surfaceContainerLow,
                           borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                            color: colorScheme.outlineVariant.withValues(alpha: 0.25),
-                            width: 1,
-                          ),
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: Column(
@@ -2404,7 +2379,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
                         ),
                         backgroundColor: colorScheme.surfaceContainerHigh,
-                        side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.3)),
+                        side: BorderSide.none,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       );
@@ -2700,10 +2675,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.25),
-          width: 1,
-        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -2896,22 +2867,66 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       );
     }
 
-    _selectedSmsThreadId ??= threads.first.id;
-    final activeThread = threads.firstWhere(
-      (t) => t.id == _selectedSmsThreadId,
-      orElse: () => threads.first,
-    );
+    final filteredThreads = threads.where((t) {
+      switch (_selectedSmsCategory) {
+        case 'favourites':
+          return t.isPinned ||
+              widget.syncService.isThreadPinned(t.id) ||
+              widget.syncService.favourites.any((c) =>
+                  _numbersMatch(c.phone, t.phone) ||
+                  (c.name.trim().isNotEmpty &&
+                      c.name.trim().toLowerCase() == t.contactName.trim().toLowerCase()));
+        case 'starred':
+          return widget.syncService.isThreadStarred(t.id);
+        case 'contacts':
+          return t.contactName.isNotEmpty && t.contactName != t.phone;
+        case 'unknown':
+          return t.contactName.isEmpty || t.contactName == t.phone;
+        case 'otp':
+          return _otpRegex.hasMatch(t.snippet) || t.messages.any((m) => _otpRegex.hasMatch(m.body));
+        case 'all':
+        default:
+          return true;
+      }
+    }).toList();
+
+    SyncedSmsThread? activeThread;
+    if (filteredThreads.isNotEmpty) {
+      activeThread = filteredThreads.firstWhere(
+        (t) => t.id == _selectedSmsThreadId,
+        orElse: () => filteredThreads.first,
+      );
+      _selectedSmsThreadId = activeThread.id;
+
+      if (activeThread.unreadCount > 0) {
+        final threadIdToMark = activeThread.id;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final currentThread = widget.syncService.smsThreads.cast<SyncedSmsThread?>().firstWhere(
+            (t) => t?.id == threadIdToMark,
+            orElse: () => null,
+          );
+          if (currentThread != null && currentThread.unreadCount > 0) {
+            widget.syncService.markSmsAsRead(currentThread.id);
+          }
+        });
+      }
+    } else {
+      activeThread = null;
+    }
+
+    final groupedThreads = _groupSmsThreadsByDate(filteredThreads);
 
     return Row(
       children: [
         // Thread list
         SizedBox(
-          width: 320,
+          width: 340,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
                 child: Row(
                   children: [
                     Expanded(
@@ -2931,153 +2946,90 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   ],
                 ),
               ),
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  itemCount: threads.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 2),
-                  itemBuilder: (context, index) {
-                    final thread = threads[index];
-                    final isSelected = thread.id == activeThread.id;
-                    final isUnread = thread.unreadCount > 0;
-                    final hasName = thread.contactName.isNotEmpty &&
-                        thread.contactName != thread.phone;
-                    final displayName = hasName ? thread.contactName : thread.phone;
 
-                    final bgColor = isSelected
-                        ? colorScheme.primaryContainer.withValues(alpha: 0.45)
-                        : (isUnread
-                            ? colorScheme.surfaceContainerHigh.withValues(alpha: 0.5)
-                            : Colors.transparent);
-
-                    return GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onSecondaryTapDown: (details) => _showSmsThreadContextMenu(context, details.globalPosition, thread),
-                      onLongPressStart: (details) => _showSmsThreadContextMenu(context, details.globalPosition, thread),
-                      child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () {
-                        setState(() {
-                          _selectedSmsThreadId = thread.id;
-                        });
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: bgColor,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          children: [
-                            Builder(
-                              builder: (context) {
-                                final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(thread.phone);
-                                final avatarImg = _getAvatarImage(pfpBase64);
-                                return CircleAvatar(
-                                  radius: 22,
-                                  backgroundColor: isUnread
-                                      ? colorScheme.primaryContainer
-                                      : colorScheme.surfaceContainerHighest,
-                                  backgroundImage: avatarImg,
-                                  child: avatarImg != null
-                                      ? null
-                                      : (hasName && thread.contactName.trim().isNotEmpty
-                                          ? Text(
-                                              thread.contactName.trim()[0].toUpperCase(),
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 16,
-                                                color: isUnread
-                                                    ? colorScheme.onPrimaryContainer
-                                                    : colorScheme.onSurface,
-                                              ),
-                                            )
-                                          : Icon(
-                                              Icons.person,
-                                              size: 22,
-                                              color: colorScheme.onSurfaceVariant,
-                                            )),
-                                );
-                              },
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          displayName,
-                                          style: theme.textTheme.titleSmall?.copyWith(
-                                            fontWeight: isUnread
-                                                ? FontWeight.bold
-                                                : FontWeight.w600,
-                                            color: colorScheme.onSurface,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _formatConversationDate(thread.timestamp),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: isUnread
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
-                                          color: isUnread
-                                              ? colorScheme.primary
-                                              : colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          thread.snippet.isNotEmpty
-                                              ? thread.snippet
-                                              : 'No message text',
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: isUnread
-                                                ? colorScheme.onSurface
-                                                : colorScheme.onSurfaceVariant,
-                                            fontWeight: isUnread
-                                                ? FontWeight.w600
-                                                : FontWeight.normal,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (isUnread) ...[
-                                        const SizedBox(width: 6),
-                                        Container(
-                                          width: 10,
-                                          height: 10,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: colorScheme.primary,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
+              // Category Filter Pills: All, Favourites, Starred, Contacts, Unknown, OTP
+              SizedBox(
+                height: 38,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      _buildSmsCategoryChip('all', 'All'),
+                      const SizedBox(width: 6),
+                      _buildSmsCategoryChip('favourites', 'Favourites'),
+                      const SizedBox(width: 6),
+                      _buildSmsCategoryChip('starred', 'Starred'),
+                      const SizedBox(width: 6),
+                      _buildSmsCategoryChip('contacts', 'Contacts'),
+                      const SizedBox(width: 6),
+                      _buildSmsCategoryChip('unknown', 'Unknown'),
+                      const SizedBox(width: 6),
+                      _buildSmsCategoryChip('otp', 'OTP'),
+                    ],
+                  ),
                 ),
+              ),
+              const SizedBox(height: 8),
+
+              Expanded(
+                child: filteredThreads.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Text(
+                            'No conversations found',
+                            style: TextStyle(color: colorScheme.outline),
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        itemCount: groupedThreads.length,
+                        itemBuilder: (context, groupIndex) {
+                          final dateHeader = groupedThreads.keys.elementAt(groupIndex);
+                          final threadsInGroup = groupedThreads[dateHeader]!;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(left: 6, bottom: 6, top: 4),
+                                child: Text(
+                                  dateHeader,
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: colorScheme.primary,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surfaceContainerLow,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: Column(
+                                  children: [
+                                    for (int i = 0; i < threadsInGroup.length; i++) ...[
+                                      if (i > 0)
+                                        Divider(
+                                          height: 1,
+                                          thickness: 0.5,
+                                          indent: 64,
+                                          endIndent: 12,
+                                          color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                                        ),
+                                      _buildSmsThreadTile(threadsInGroup[i], activeThread),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                          );
+                        },
+                      ),
               ),
             ],
           ),
@@ -3089,37 +3041,56 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         ),
 
         // Conversation detail view
-        Expanded(
-          child: Column(
-            children: [
-              // Chat Header matching mobile SmsChatScreen top pill
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerLow,
-                  border: Border(
-                    bottom: BorderSide(
-                      color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-                    ),
-                  ),
+        if (activeThread == null)
+          Expanded(
+            child: Center(
+              child: Text(
+                'Select a conversation to start messaging',
+                style: TextStyle(color: colorScheme.outline),
+              ),
+            ),
+          )
+        else
+          _buildSmsChatDetail(activeThread),
+      ],
+    );
+  }
+
+  Widget _buildSmsChatDetail(SyncedSmsThread thread) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Expanded(
+      child: Column(
+        children: [
+          // Chat Header matching mobile SmsChatScreen top pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerLow,
+              border: Border(
+                bottom: BorderSide(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.3),
                 ),
-                child: Row(
-                  children: [
-                    Container(
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: colorScheme.surfaceContainerHigh,
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: colorScheme.outlineVariant.withValues(alpha: 0.35),
-                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Builder(
                             builder: (context) {
-                              final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(activeThread.phone);
+                              final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(thread.phone);
                               final avatarImg = _getAvatarImage(pfpBase64);
                               return CircleAvatar(
                                 radius: 16,
@@ -3128,8 +3099,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                                 child: avatarImg != null
                                     ? null
                                     : Text(
-                                        activeThread.contactName.trim().isNotEmpty
-                                            ? activeThread.contactName.trim()[0].toUpperCase()
+                                        thread.contactName.trim().isNotEmpty
+                                            ? thread.contactName.trim()[0].toUpperCase()
                                             : '?',
                                         style: TextStyle(
                                           fontWeight: FontWeight.bold,
@@ -3141,229 +3112,289 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                             },
                           ),
                           const SizedBox(width: 10),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                activeThread.contactName.isNotEmpty
-                                    ? activeThread.contactName
-                                    : activeThread.phone,
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (activeThread.contactName.isNotEmpty &&
-                                  activeThread.contactName != activeThread.phone)
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
                                 Text(
-                                  activeThread.phone,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: colorScheme.onSurfaceVariant,
+                                  thread.contactName.isNotEmpty
+                                      ? thread.contactName
+                                      : thread.phone,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                            ],
+                                if (thread.contactName.isNotEmpty &&
+                                    thread.contactName != thread.phone)
+                                  Text(
+                                    thread.phone,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                           const SizedBox(width: 8),
                         ],
                       ),
                     ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.call_rounded),
-                      color: colorScheme.primary,
-                      tooltip: 'Call ${activeThread.contactName}',
-                      onPressed: () {
-                        _initiateCall(activeThread.phone, displayName: activeThread.contactName);
-                      },
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                IconButton(
+                  icon: const Icon(Icons.call_rounded),
+                  color: colorScheme.primary,
+                  tooltip: 'Call ${thread.contactName}',
+                  onPressed: () {
+                    _initiateCall(thread.phone, displayName: thread.contactName);
+                  },
+                ),
+              ],
+            ),
+          ),
 
-              // Messages list with mobile date headers & bubble styling
-              Expanded(
-                child: activeThread.messages.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No messages yet.',
-                          style: TextStyle(color: colorScheme.outline),
-                        ),
-                      )
-                    : Builder(
-                        builder: (context) {
-                          // Build grouped list with date headers
-                          final List<Widget> chatWidgets = [];
-                          DateTime? lastDate;
-
-                          for (final msg in activeThread.messages) {
-                            final msgDate = DateTime(
-                              msg.timestamp.year,
-                              msg.timestamp.month,
-                              msg.timestamp.day,
-                            );
-
-                            if (lastDate == null || msgDate != lastDate) {
-                              lastDate = msgDate;
-                              chatWidgets.add(
-                                Center(
-                                  child: Container(
-                                    margin: const EdgeInsets.symmetric(vertical: 10),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      _formatChatDateHeader(msg.timestamp),
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }
-
-                            final isOut = msg.isOutgoing;
-                            chatWidgets.add(
-                              Align(
-                                alignment: isOut
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 3,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 9,
-                                  ),
-                                  constraints: const BoxConstraints(maxWidth: 380),
-                                  decoration: BoxDecoration(
-                                    color: isOut
-                                        ? colorScheme.primaryContainer
-                                        : colorScheme.surfaceContainerHighest,
-                                    borderRadius: BorderRadius.only(
-                                      topLeft: const Radius.circular(16),
-                                      topRight: const Radius.circular(16),
-                                      bottomLeft: Radius.circular(isOut ? 16 : 4),
-                                      bottomRight: Radius.circular(isOut ? 4 : 16),
-                                    ),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: isOut
-                                        ? CrossAxisAlignment.end
-                                        : CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        msg.body,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: isOut
-                                              ? colorScheme.onPrimaryContainer
-                                              : colorScheme.onSurface,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        _formatTime(msg.timestamp),
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: isOut
-                                              ? colorScheme.onPrimaryContainer.withValues(alpha: 0.7)
-                                              : colorScheme.outline,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          }
-
-                          return ListView(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            children: chatWidgets,
-                          );
-                        },
-                      ),
-              ),
-
-              // Input bar
-              Container(
-                padding: const EdgeInsets.all(12),
-                color: colorScheme.surfaceContainerLow,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _smsInputController,
-                        decoration: InputDecoration(
-                          hintText: 'Text message...',
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
-                          ),
-                          filled: true,
-                          fillColor: colorScheme.surfaceContainer,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(28),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                        onSubmitted: (text) {
-                          final trimmed = text.trim();
-                          if (trimmed.isNotEmpty) {
-                            widget.syncService.sendMessage(activeThread.id, trimmed);
-                            _smsInputController.clear();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Sending SMS to ${activeThread.contactName}...'),
-                                duration: const Duration(seconds: 2),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          }
-                        },
-                      ),
+          // Messages list with mobile date headers & bubble styling
+          Expanded(
+            child: thread.messages.isEmpty
+                ? Center(
+                    child: Text(
+                      'No messages yet.',
+                      style: TextStyle(color: colorScheme.outline),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      icon: const Icon(Icons.arrow_upward_rounded, size: 20),
-                      onPressed: () {
-                        final trimmed = _smsInputController.text.trim();
-                        if (trimmed.isNotEmpty) {
-                          widget.syncService.sendMessage(
-                            activeThread.id,
-                            trimmed,
-                          );
-                          _smsInputController.clear();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Sending SMS to ${activeThread.contactName}...'),
-                              duration: const Duration(seconds: 2),
-                              behavior: SnackBarBehavior.floating,
+                  )
+                : Builder(
+                    builder: (context) {
+                      // Sort chronologically (oldest to newest)
+                      final sortedMessages = List<SyncedSmsMessage>.from(thread.messages)
+                        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+                      // Build grouped list with date headers
+                      final List<Widget> chatWidgets = [];
+                      DateTime? lastDate;
+
+                      for (final msg in sortedMessages) {
+                        final msgDate = DateTime(
+                          msg.timestamp.year,
+                          msg.timestamp.month,
+                          msg.timestamp.day,
+                        );
+
+                        if (lastDate == null || msgDate != lastDate) {
+                          lastDate = msgDate;
+                          chatWidgets.add(
+                            Center(
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  _formatChatDateHeader(msg.timestamp),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
                             ),
                           );
                         }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
+
+                        final isOut = msg.isOutgoing;
+                        final isPinned = widget.syncService.isMessagePinned(msg.id);
+                        final isStarred = widget.syncService.isMessageStarred(msg.id);
+                        final footerColor = isOut
+                            ? colorScheme.onPrimaryContainer.withValues(alpha: 0.7)
+                            : colorScheme.outline;
+
+                        chatWidgets.add(
+                          Align(
+                            alignment: isOut
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onSecondaryTapDown: (details) => _showMessageContextMenu(
+                                context,
+                                details.globalPosition,
+                                thread.id,
+                                msg,
+                              ),
+                              onLongPressStart: (details) => _showMessageContextMenu(
+                                context,
+                                details.globalPosition,
+                                thread.id,
+                                msg,
+                              ),
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 3,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 9,
+                                ),
+                                constraints: const BoxConstraints(maxWidth: 420),
+                                decoration: BoxDecoration(
+                                  color: isOut
+                                      ? colorScheme.primaryContainer
+                                      : colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: const Radius.circular(16),
+                                    topRight: const Radius.circular(16),
+                                    bottomLeft: Radius.circular(isOut ? 16 : 4),
+                                    bottomRight: Radius.circular(isOut ? 4 : 16),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: isOut
+                                      ? CrossAxisAlignment.end
+                                      : CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text.rich(
+                                      TextSpan(
+                                        children: _buildMessageSpans(
+                                          context,
+                                          msg.body,
+                                          isOut,
+                                          colorScheme,
+                                        ),
+                                      ),
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        height: 1.35,
+                                        color: isOut
+                                            ? colorScheme.onPrimaryContainer
+                                            : colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (isPinned) ...[
+                                          Icon(
+                                            Icons.push_pin,
+                                            size: 11,
+                                            color: footerColor,
+                                          ),
+                                          const SizedBox(width: 3),
+                                        ],
+                                        if (isStarred) ...[
+                                          const Icon(
+                                            Icons.star_rounded,
+                                            size: 13,
+                                            color: Color(0xFFFFB300),
+                                          ),
+                                          const SizedBox(width: 3),
+                                        ],
+                                        Text(
+                                          _formatTime(msg.timestamp),
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: footerColor,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return SelectionArea(
+                        child: ListView(
+                          reverse: true,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          children: chatWidgets.reversed.toList(),
+                        ),
+                      );
+                    },
+                  ),
           ),
-        ),
-      ],
+
+          // Input bar
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: colorScheme.surfaceContainerLow,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _smsInputController,
+                    decoration: InputDecoration(
+                      hintText: 'Text message...',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      filled: true,
+                      fillColor: colorScheme.surfaceContainer,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(28),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onSubmitted: (text) {
+                      final trimmed = text.trim();
+                      if (trimmed.isNotEmpty) {
+                        widget.syncService.sendMessage(thread.id, trimmed);
+                        _smsInputController.clear();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Sending SMS to ${thread.contactName}...'),
+                            duration: const Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  icon: const Icon(Icons.arrow_upward_rounded, size: 20),
+                  onPressed: () {
+                    final trimmed = _smsInputController.text.trim();
+                    if (trimmed.isNotEmpty) {
+                      widget.syncService.sendMessage(
+                        thread.id,
+                        trimmed,
+                      );
+                      _smsInputController.clear();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Sending SMS to ${thread.contactName}...'),
+                          duration: const Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3454,9 +3485,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           color: colorScheme.surfaceContainer,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(18),
-                            side: BorderSide(
-                              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-                            ),
                           ),
                           child: Padding(
                             padding: const EdgeInsets.all(16.0),
@@ -3662,6 +3690,15 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     return map;
   }
 
+  Map<String, List<SyncedSmsThread>> _groupSmsThreadsByDate(List<SyncedSmsThread> threads) {
+    final map = <String, List<SyncedSmsThread>>{};
+    for (final thread in threads) {
+      final header = _formatCallDateHeader(thread.timestamp);
+      map.putIfAbsent(header, () => []).add(thread);
+    }
+    return map;
+  }
+
   Map<String, List<SyncedContact>> _groupContactsByLetter(List<SyncedContact> contacts) {
     final map = <String, List<SyncedContact>>{};
     for (final contact in contacts) {
@@ -3733,12 +3770,16 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             color: isDestructive ? Colors.redAccent : iconColor,
           ),
           const SizedBox(width: 12),
-          Text(
-            label,
-            style: TextStyle(
-              color: isDestructive ? Colors.redAccent : textColor,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w500,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isDestructive ? Colors.redAccent : textColor,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -4100,6 +4141,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             setState(() {
               _selectedSmsThreadId = thread.id;
             });
+            if (thread.unreadCount > 0) {
+              widget.syncService.markSmsAsRead(thread.id);
+            }
             break;
           case 'call':
             _initiateCall(thread.phone, displayName: displayName);
@@ -4126,6 +4170,541 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         }
       },
     );
+  }
+
+  Widget _buildSmsCategoryChip(String key, String label) {
+    final isSelected = _selectedSmsCategory == key;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return FilterChip(
+      selected: isSelected,
+      label: Text(label),
+      labelStyle: TextStyle(
+        fontSize: 12.5,
+        fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+        color: isSelected ? colorScheme.onPrimary : colorScheme.onSurfaceVariant,
+      ),
+      backgroundColor: colorScheme.surfaceContainerHigh.withValues(alpha: 0.5),
+      selectedColor: colorScheme.primary,
+      checkmarkColor: colorScheme.onPrimary,
+      showCheckmark: false,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+      side: BorderSide.none,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+      onSelected: (val) {
+        setState(() {
+          _selectedSmsCategory = key;
+        });
+      },
+    );
+  }
+
+  Widget _buildSmsThreadTile(SyncedSmsThread thread, SyncedSmsThread? activeThread) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isSelected = activeThread != null && thread.id == activeThread.id;
+    final isUnread = thread.unreadCount > 0;
+    final hasName = thread.contactName.isNotEmpty && thread.contactName != thread.phone;
+    final displayName = hasName ? thread.contactName : thread.phone;
+
+    final bgColor = isSelected
+        ? colorScheme.primaryContainer.withValues(alpha: 0.45)
+        : (isUnread
+            ? colorScheme.surfaceContainerHigh.withValues(alpha: 0.4)
+            : Colors.transparent);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapDown: (details) => _showSmsThreadContextMenu(context, details.globalPosition, thread),
+      onLongPressStart: (details) => _showSmsThreadContextMenu(context, details.globalPosition, thread),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _selectedSmsThreadId = thread.id;
+          });
+          if (thread.unreadCount > 0) {
+            widget.syncService.markSmsAsRead(thread.id);
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          color: bgColor,
+          child: Row(
+            children: [
+              Builder(
+                builder: (context) {
+                  final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(thread.phone);
+                  final avatarImg = _getAvatarImage(pfpBase64);
+                  return CircleAvatar(
+                    radius: 20,
+                    backgroundColor: isUnread
+                        ? colorScheme.primaryContainer
+                        : colorScheme.surfaceContainerHighest,
+                    backgroundImage: avatarImg,
+                    child: avatarImg != null
+                        ? null
+                        : (hasName && thread.contactName.trim().isNotEmpty
+                            ? Text(
+                                thread.contactName.trim()[0].toUpperCase(),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: isUnread
+                                      ? colorScheme.onPrimaryContainer
+                                      : colorScheme.onSurface,
+                                ),
+                              )
+                            : Icon(
+                                Icons.person,
+                                size: 20,
+                                color: colorScheme.onSurfaceVariant,
+                              )),
+                  );
+                },
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            displayName,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: isUnread
+                                  ? FontWeight.bold
+                                  : FontWeight.w600,
+                              color: colorScheme.onSurface,
+                              fontSize: 13.5,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _formatConversationDate(thread.timestamp),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: isUnread
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: isUnread
+                                ? colorScheme.primary
+                                : colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            thread.snippet.isNotEmpty
+                                ? thread.snippet
+                                : 'No message text',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: isUnread
+                                  ? colorScheme.onSurface
+                                  : colorScheme.onSurfaceVariant,
+                              fontWeight: isUnread
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (thread.isPinned) ...[
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.push_pin,
+                            size: 12,
+                            color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                          ),
+                        ],
+                        if (widget.syncService.isThreadStarred(thread.id)) ...[
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.star_rounded,
+                            size: 14,
+                            color: Color(0xFFFFB300),
+                          ),
+                        ],
+                        if (isUnread) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: colorScheme.primary,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${thread.unreadCount}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.onPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showMessageContextMenu(BuildContext context, Offset position, String threadId, SyncedSmsMessage msg) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isPinned = widget.syncService.isMessagePinned(msg.id);
+    final isStarred = widget.syncService.isMessageStarred(msg.id);
+
+    _showItemContextMenu(
+      context: context,
+      globalPosition: position,
+      items: [
+        _buildMenuItem(
+          value: 'pin',
+          icon: isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+          label: isPinned ? 'Unpin message' : 'Pin message',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        _buildMenuItem(
+          value: 'star',
+          icon: isStarred ? Icons.star_outline_rounded : Icons.star_rounded,
+          label: isStarred ? 'Unstar message' : 'Star message',
+          iconColor: const Color(0xFFFFB300),
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          value: 'select',
+          icon: Icons.select_all,
+          label: 'Select text',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        _buildMenuItem(
+          value: 'copy',
+          icon: Icons.copy,
+          label: 'Copy text',
+          iconColor: colorScheme.onSurfaceVariant,
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          value: 'delete',
+          icon: Icons.delete_outline,
+          label: 'Delete',
+          isDestructive: true,
+        ),
+      ],
+      onSelected: (action) {
+        switch (action) {
+          case 'pin':
+            widget.syncService.togglePinMessage(msg.id);
+            break;
+          case 'star':
+            widget.syncService.toggleStarMessage(msg.id);
+            break;
+          case 'select':
+            _showSelectTextDialog(context, msg.body);
+            break;
+          case 'copy':
+            Clipboard.setData(ClipboardData(text: msg.body));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Message copied to clipboard'),
+                duration: Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            break;
+          case 'delete':
+            _confirmDeleteSmsMessage(context, threadId, msg.id);
+            break;
+        }
+      },
+    );
+  }
+
+  void _showSelectTextDialog(BuildContext context, String text) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Select text'),
+        content: Container(
+          constraints: const BoxConstraints(maxWidth: 480, maxHeight: 360),
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurface,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: text));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Copied all to clipboard'),
+                  duration: Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+              Navigator.pop(ctx);
+            },
+            child: const Text('Copy all'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteSmsMessage(BuildContext context, String threadId, String messageId) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete message?'),
+        content: const Text(
+          'Delete this message? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.syncService.deleteSmsMessage(threadId, messageId);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Message deleted'),
+                  duration: Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPhoneActionDialog(BuildContext context, String phoneNumber) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.phone_outlined, color: colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                phoneNumber,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.call, color: colorScheme.primary),
+              title: const Text('Call'),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _initiateCall(phoneNumber, displayName: phoneNumber);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.message_outlined, color: colorScheme.primary),
+              title: const Text('Text'),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showNewMessageDialog(context, initialNumber: phoneNumber);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.copy, color: colorScheme.onSurfaceVariant),
+              title: const Text('Copy Number'),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                Clipboard.setData(ClipboardData(text: phoneNumber));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Copied $phoneNumber to clipboard'),
+                    duration: const Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openBrowserUrl(String rawUrl) {
+    var url = rawUrl.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://$url';
+    }
+    try {
+      Process.run('xdg-open', [url]);
+    } catch (e) {
+      debugPrint('Failed to open URL $url: $e');
+    }
+  }
+
+  List<InlineSpan> _buildMessageSpans(
+    BuildContext context,
+    String text,
+    bool isOutgoing,
+    ColorScheme colorScheme,
+  ) {
+    final textColor = isOutgoing
+        ? colorScheme.onPrimaryContainer
+        : colorScheme.onSurface;
+    final linkColor = colorScheme.primary;
+
+    final List<InlineSpan> spans = [];
+
+    final urlRegex = RegExp(
+      r'(https?:\/\/[^\s<>"\)]+|www\.[^\s<>"\)]+)',
+      caseSensitive: false,
+    );
+
+    int lastIdx = 0;
+    for (final match in urlRegex.allMatches(text)) {
+      if (match.start > lastIdx) {
+        final sub = text.substring(lastIdx, match.start);
+        _appendPhoneAndTextSpans(context, spans, sub, textColor, linkColor);
+      }
+      var url = match.group(0)!;
+      String trailing = '';
+      while (url.isNotEmpty &&
+          (url.endsWith('.') ||
+              url.endsWith(',') ||
+              url.endsWith(';') ||
+              url.endsWith(')') ||
+              url.endsWith(']'))) {
+        trailing = url[url.length - 1] + trailing;
+        url = url.substring(0, url.length - 1);
+      }
+
+      spans.add(
+        TextSpan(
+          text: url,
+          style: TextStyle(
+            color: linkColor,
+            decoration: TextDecoration.underline,
+            decorationColor: linkColor,
+            fontWeight: FontWeight.w500,
+          ),
+          recognizer: TapGestureRecognizer()..onTap = () => _openBrowserUrl(url),
+        ),
+      );
+
+      if (trailing.isNotEmpty) {
+        _appendPhoneAndTextSpans(context, spans, trailing, textColor, linkColor);
+      }
+
+      lastIdx = match.end;
+    }
+
+    if (lastIdx < text.length) {
+      final sub = text.substring(lastIdx);
+      _appendPhoneAndTextSpans(context, spans, sub, textColor, linkColor);
+    }
+
+    return spans;
+  }
+
+  void _appendPhoneAndTextSpans(
+    BuildContext context,
+    List<InlineSpan> spans,
+    String text,
+    Color textColor,
+    Color linkColor,
+  ) {
+    final phoneRegex = RegExp(r'(\+?\d[\d\s\-\(\)]{5,}\d)');
+    int lastIdx = 0;
+    for (final match in phoneRegex.allMatches(text)) {
+      final candidate = match.group(0)!;
+      final digits = candidate.replaceAll(RegExp(r'\D'), '');
+      if (digits.length >= 7 && digits.length <= 15) {
+        if (match.start > lastIdx) {
+          spans.add(TextSpan(
+            text: text.substring(lastIdx, match.start),
+            style: TextStyle(color: textColor),
+          ));
+        }
+        spans.add(
+          TextSpan(
+            text: candidate,
+            style: TextStyle(
+              color: linkColor,
+              decoration: TextDecoration.underline,
+              decorationColor: linkColor,
+              fontWeight: FontWeight.w500,
+            ),
+            recognizer: TapGestureRecognizer()..onTap = () => _showPhoneActionDialog(context, candidate),
+          ),
+        );
+        lastIdx = match.end;
+      }
+    }
+    if (lastIdx < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastIdx),
+        style: TextStyle(color: textColor),
+      ));
+    }
   }
 
   void _showNoteContextMenu(BuildContext context, Offset position, SyncedNote note) {
