@@ -9,9 +9,53 @@ class SystemService extends ChangeNotifier {
   final SharedPreferences? prefs;
   bool _autostartEnabled = true;
   bool _systemTrayEnabled = true;
+  bool _isMaximized = false;
 
   bool get autostartEnabled => _autostartEnabled;
   bool get systemTrayEnabled => _systemTrayEnabled;
+  bool get isMaximized => _isMaximized;
+
+  Future<void> minimizeWindow() async {
+    try {
+      if (Platform.isLinux) {
+        await _channel.invokeMethod('minimizeWindow');
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error minimizing window: $e');
+    }
+  }
+
+  Future<void> toggleMaximizeWindow() async {
+    try {
+      if (Platform.isLinux) {
+        final res = await _channel.invokeMethod<bool>('toggleMaximizeWindow');
+        _isMaximized = res ?? !_isMaximized;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error toggling maximize: $e');
+    }
+  }
+
+  Future<void> closeWindow() async {
+    try {
+      if (Platform.isLinux) {
+        await _channel.invokeMethod('closeWindow');
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error closing window: $e');
+    }
+  }
+
+  Future<void> startWindowDrag() async {
+    try {
+      if (Platform.isLinux) {
+        await _channel.invokeMethod('startDrag');
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error starting window drag: $e');
+    }
+  }
 
   SystemService({this.prefs}) {
     _loadSettings();
@@ -55,7 +99,7 @@ class SystemService extends ChangeNotifier {
 Type=Application
 Name=Ever Dialer PC
 Comment=Bluetooth Media Speaker Sink & Phone Companion
-Exec="$exePath"
+Exec="$exePath" --hidden
 Icon=ever_dialer_pc
 Terminal=false
 Categories=AudioVideo;Audio;Utility;

@@ -362,6 +362,40 @@ class SyncedNote {
   };
 }
 
+class SyncedTelemetry {
+  final int batteryLevel; // 0 to 100, or -1 if unknown
+  final bool isBatteryCharging;
+  final int wifiLevel; // -1 if disconnected/off, 0 to 4
+  final bool isWifiConnected;
+  final int cellularLevel; // -1 if unknown/no signal, 0 to 4
+
+  const SyncedTelemetry({
+    this.batteryLevel = -1,
+    this.isBatteryCharging = false,
+    this.wifiLevel = -1,
+    this.isWifiConnected = false,
+    this.cellularLevel = -1,
+  });
+
+  factory SyncedTelemetry.fromJson(Map<String, dynamic> json) {
+    return SyncedTelemetry(
+      batteryLevel: json['batteryLevel'] is int ? json['batteryLevel'] as int : -1,
+      isBatteryCharging: json['isCharging'] == true,
+      wifiLevel: json['wifiLevel'] is int ? json['wifiLevel'] as int : -1,
+      isWifiConnected: json['isWifiConnected'] == true,
+      cellularLevel: json['cellularLevel'] is int ? json['cellularLevel'] as int : -1,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'batteryLevel': batteryLevel,
+    'isCharging': isBatteryCharging,
+    'wifiLevel': wifiLevel,
+    'isWifiConnected': isWifiConnected,
+    'cellularLevel': cellularLevel,
+  };
+}
+
 class PcSyncService extends ChangeNotifier {
   static const _prefPcSyncEnabledKey = 'pc_sync_enabled';
   static const _prefCachedDataKey = 'pc_sync_cached_data_v2';
@@ -379,6 +413,10 @@ class PcSyncService extends ChangeNotifier {
 
   DateTime? _lastSyncTime;
   DateTime? get lastSyncTime => _lastSyncTime;
+
+  // Phone telemetry (battery, Wi-Fi, cellular)
+  SyncedTelemetry _telemetry = const SyncedTelemetry();
+  SyncedTelemetry get telemetry => _telemetry;
 
   // Real phone data (NO fake/unsaved contacts)
   List<SyncedContact> _contacts = [];
@@ -637,6 +675,12 @@ class PcSyncService extends ChangeNotifier {
         if (payload is Map<String, dynamic>) {
           updateFromPayload(payload);
         }
+      } else if (event == 'telemetry') {
+        final payload = data['payload'];
+        if (payload is Map<String, dynamic>) {
+          _telemetry = SyncedTelemetry.fromJson(payload);
+          notifyListeners();
+        }
       }
     } catch (e) {
       debugPrint('[PcSyncService] Error processing daemon output: $e');
@@ -656,6 +700,7 @@ class PcSyncService extends ChangeNotifier {
   }
 
   void updateFromPayload(Map<String, dynamic> payload) {
+    _isConnected = true;
     _applyPayload(payload, saveCache: true);
     notifyListeners();
   }
@@ -766,6 +811,13 @@ class PcSyncService extends ChangeNotifier {
       _connectedDeviceName = payload['deviceName']?.toString();
     }
 
+    if (payload.containsKey('telemetry')) {
+      final telem = payload['telemetry'];
+      if (telem is Map<String, dynamic>) {
+        _telemetry = SyncedTelemetry.fromJson(telem);
+      }
+    }
+
     _lastSyncTime = DateTime.now();
 
     if (saveCache) {
@@ -798,6 +850,10 @@ class PcSyncService extends ChangeNotifier {
 
   void requestSyncNow() {
     _sendCommand({'cmd': 'request_sync'});
+  }
+
+  void requestTelemetryNow() {
+    _sendCommand({'cmd': 'request_telemetry'});
   }
 
   void addNote(String title, String content) {

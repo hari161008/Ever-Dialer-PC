@@ -383,43 +383,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       ),
                     ),
                   ),
-
-                  Divider(
-                    indent: 12,
-                    endIndent: 12,
-                    color: colorScheme.outlineVariant.withValues(alpha: 0.4),
-                  ),
-
-                  // Bluetooth Sync Status & trigger
-                  IconButton(
-                    icon: Icon(
-                      widget.syncService.isConnected
-                          ? Icons.bluetooth_connected
-                          : Icons.bluetooth_searching,
-                      color: widget.syncService.isConnected
-                          ? colorScheme.primary
-                          : colorScheme.outline,
-                      size: 20,
-                    ),
-                    tooltip: widget.syncService.isConnected
-                        ? 'Synced with ${widget.syncService.connectedDeviceName ?? "Mobile"}. Click to refresh.'
-                        : 'Searching for Ever Dialer Mobile... Click to refresh.',
-                    onPressed: () {
-                      widget.syncService.requestSyncNow();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            widget.syncService.isConnected
-                                ? 'Requesting sync from ${widget.syncService.connectedDeviceName ?? "phone"}...'
-                                : 'Listening for Bluetooth connection from Ever Dialer Mobile...',
-                          ),
-                          duration: const Duration(seconds: 2),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
 
                   // Settings button at bottom of rail
                   Padding(

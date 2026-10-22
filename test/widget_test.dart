@@ -31,17 +31,18 @@ void main() {
     expect(find.text('Ever Dialer PC'), findsWidgets);
     expect(find.text('Material You'), findsNothing);
 
-    // Verify Settings icon in top right AppBar actions
-    final settingsIconFinder = find.byIcon(Icons.settings_outlined);
-    expect(settingsIconFinder, findsOneWidget);
+    // Verify Settings icon in top right AppBar actions is removed
+    expect(find.byIcon(Icons.settings_outlined), findsNothing);
 
     // Verify default state is OFF
     expect(mockService.state.speakerModeEnabled, false);
     expect(mockSyncService.pcSyncEnabled, false);
     expect(find.text('Bluetooth connection & sync are currently OFF'), findsOneWidget);
 
-    // Tap the Settings icon to open Settings screen
-    await tester.tap(settingsIconFinder);
+    // Tap "Bluetooth & Sync Settings" button on the dashboard to open Settings screen
+    final settingsButtonFinder = find.text('Bluetooth & Sync Settings');
+    expect(settingsButtonFinder, findsOneWidget);
+    await tester.tap(settingsButtonFinder);
     await tester.pumpAndSettle();
 
     // Verify that Settings screen has the single unified "Bluetooth Connection & Sync" container
@@ -502,14 +503,26 @@ void main() {
     ));
     await tester.pump();
 
-    // Open Settings
-    await tester.tap(find.byIcon(Icons.settings_outlined));
+    // Verify no settings_outlined icon on dashboard
+    expect(find.byIcon(Icons.settings_outlined), findsNothing);
+
+    // Open Settings via Bluetooth & Sync Settings button
+    final settingsButtonFinder = find.text('Bluetooth & Sync Settings');
+    expect(settingsButtonFinder, findsOneWidget);
+    await tester.tap(settingsButtonFinder);
     await tester.pumpAndSettle();
+
+    // Verify settings_outlined is also not present in Settings screen
+    expect(find.byIcon(Icons.settings_outlined), findsNothing);
 
     // Verify System & Startup card exists
     expect(find.text('System & Startup'), findsOneWidget);
     expect(find.text('Autostart'), findsOneWidget);
     expect(find.text('Show in system tray'), findsOneWidget);
+
+    // Verify About Ever Dialer PC section with v1.0.0 exists
+    expect(find.text('About Ever Dialer PC'), findsOneWidget);
+    expect(find.text('v1.0.0'), findsWidgets);
 
     // Verify both default to ON (true)
     final autostartTile = tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Autostart'));
@@ -542,6 +555,55 @@ void main() {
         expect(shape.side, BorderSide.none);
       }
     }
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('App displays custom window controls and phone telemetry status indicators in the top right corner', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pump();
+
+    // Verify window controls exist (minimize, maximize, close)
+    expect(find.byIcon(Icons.remove), findsOneWidget);
+    expect(find.byIcon(Icons.crop_square), findsOneWidget);
+    expect(find.byIcon(Icons.close), findsOneWidget);
+
+    // Verify Bluetooth status icon in top right header
+    expect(find.byIcon(Icons.bluetooth_searching), findsOneWidget);
+
+    // Simulate incoming telemetry from phone
+    mockSyncService.updateFromPayload({
+      'deviceName': 'Pixel 9 Pro',
+      'telemetry': {
+        'batteryLevel': 85,
+        'isCharging': false,
+        'wifiLevel': 3,
+        'isWifiConnected': true,
+        'cellularLevel': 4,
+      },
+    });
+    await tester.pumpAndSettle();
+
+    // Verify telemetry indicators
+    expect(find.text('85%'), findsOneWidget);
+    expect(find.byIcon(Icons.battery_6_bar_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.network_wifi_3_bar_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.signal_cellular_4_bar_rounded), findsOneWidget);
 
     mockService.dispose();
     mockSyncService.dispose();

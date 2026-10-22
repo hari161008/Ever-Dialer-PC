@@ -4,6 +4,7 @@ import '../services/sync_service.dart';
 import '../services/system_service.dart';
 import '../widgets/bluetooth_container.dart';
 import '../widgets/audio_status_card.dart';
+import '../widgets/window_header_actions.dart';
 
 class SettingsScreen extends StatelessWidget {
   final BluetoothService bluetoothService;
@@ -197,41 +198,55 @@ class SettingsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'Settings',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: colorScheme.onSurface,
+        flexibleSpace: WindowDragArea(
+          onStartDrag: () => systemService?.startWindowDrag(),
+          onDoubleTap: () => systemService?.toggleMaximizeWindow(),
+          child: const SizedBox.expand(),
+        ),
+        title: WindowDragArea(
+          onStartDrag: () => systemService?.startWindowDrag(),
+          onDoubleTap: () => systemService?.toggleMaximizeWindow(),
+          child: Text(
+            'Settings',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: colorScheme.onSurface,
+            ),
           ),
         ),
         actions: [
-          IconButton(
-            icon: Icon(_getThemeIcon(), color: colorScheme.onSurfaceVariant),
-            tooltip: _getThemeLabel(),
-            onPressed: onToggleTheme,
+          WindowHeaderActions(
+            syncService: syncService,
+            systemService: systemService,
+            leadingActions: [
+              IconButton(
+                icon: Icon(_getThemeIcon(), color: colorScheme.onSurfaceVariant),
+                tooltip: _getThemeLabel(),
+                onPressed: onToggleTheme,
+              ),
+              IconButton(
+                icon: Icon(Icons.refresh, color: colorScheme.onSurfaceVariant),
+                tooltip: 'Refresh Hardware Status',
+                onPressed: () {
+                  bluetoothService.refresh();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Hardware state refreshed'),
+                      duration: Duration(seconds: 1),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
-          IconButton(
-            icon: Icon(Icons.refresh, color: colorScheme.onSurfaceVariant),
-            tooltip: 'Refresh Hardware Status',
-            onPressed: () {
-              bluetoothService.refresh();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Hardware state refreshed'),
-                  duration: Duration(seconds: 1),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-          ),
-          const SizedBox(width: 8),
         ],
       ),
       body: ListenableBuilder(
         listenable: Listenable.merge([
           bluetoothService,
-          if (syncService != null) syncService!,
-          if (systemService != null) systemService!,
+          ?syncService,
+          ?systemService,
         ]),
         builder: (context, _) {
           final state = bluetoothService.state;
@@ -485,12 +500,159 @@ class SettingsScreen extends StatelessWidget {
                   onSelectSink: (sink) => bluetoothService.setOutputSink(sink),
                 ),
 
+                const SizedBox(height: 18),
+
+                // 5. About Ever Dialer PC Card
+                Card(
+                  elevation: 0,
+                  color: colorScheme.surfaceContainer,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: Image.asset(
+                                'assets/icons/app_icon.png',
+                                width: 56,
+                                height: 56,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Icon(
+                                  Icons.dialpad,
+                                  size: 30,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'About Ever Dialer PC',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Bluetooth Companion & Audio Sink',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: colorScheme.primaryContainer,
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.info_outline, size: 12, color: colorScheme.onPrimaryContainer),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'v1.0.0',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: colorScheme.onPrimaryContainer,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: colorScheme.secondaryContainer,
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.verified_user_outlined, size: 12, color: colorScheme.onSecondaryContainer),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Open Source',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: colorScheme.onSecondaryContainer,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
+                        Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 14),
+
+                        Text(
+                          'Ever Dialer PC seamlessly connects your Linux PC with Ever Dialer Mobile over Bluetooth. Sync contacts, call logs, SMS messages, and stream high-fidelity calls or media wirelessly through your laptop speakers.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            height: 1.4,
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+                        Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 8),
+
+                        _buildAboutInfoRow(context, 'Version', 'v1.0.0'),
+                        _buildAboutInfoRow(context, 'Audio Subsystem', 'PipeWire A2DP Audio Sink (BlueZ 5)'),
+                        _buildAboutInfoRow(context, 'Desktop Integration', 'StatusNotifierItem & XDG Autostart'),
+                        _buildAboutInfoRow(context, 'Sync Protocol', 'Ever Dialer RFCOMM Bluetooth Sync'),
+                        _buildAboutInfoRow(context, 'Platform', 'Linux (x86_64, Wayland/X11)'),
+                        _buildAboutInfoRow(context, 'Developer', 'Hari (svhp)'),
+                      ],
+                    ),
+                  ),
+                ),
+
                 const SizedBox(height: 24),
 
                 // Footer Info
                 Center(
                   child: Text(
-                    'PipeWire A2DP Audio Sink • BlueZ 5 • Fedora Linux',
+                    'PipeWire A2DP Audio Sink • BlueZ 5 • Fedora Linux • v1.0.0',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colorScheme.outline,
                     ),
@@ -501,6 +663,38 @@ class SettingsScreen extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildAboutInfoRow(BuildContext context, String label, String value) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

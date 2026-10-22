@@ -6,6 +6,7 @@ import 'services/sync_service.dart';
 import 'services/system_service.dart';
 import 'screens/settings_screen.dart';
 import 'widgets/mobile_landscape_layout.dart';
+import 'widgets/window_header_actions.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -300,20 +301,27 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
         if (isUnifiedEnabled) {
           return Scaffold(
             appBar: AppBar(
-              title: Text(
-                'Ever Dialer PC',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurface,
+              flexibleSpace: WindowDragArea(
+                onStartDrag: () => _systemService.startWindowDrag(),
+                onDoubleTap: () => _systemService.toggleMaximizeWindow(),
+                child: const SizedBox.expand(),
+              ),
+              title: WindowDragArea(
+                onStartDrag: () => _systemService.startWindowDrag(),
+                onDoubleTap: () => _systemService.toggleMaximizeWindow(),
+                child: Text(
+                  'Ever Dialer PC',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSurface,
+                  ),
                 ),
               ),
               actions: [
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined),
-                  tooltip: 'Settings',
-                  onPressed: _openSettings,
+                WindowHeaderActions(
+                  syncService: _syncService,
+                  systemService: _systemService,
                 ),
-                const SizedBox(width: 8),
               ],
             ),
             body: MobileLandscapeLayout(
@@ -326,20 +334,27 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
         // When Bluetooth Connection & Sync is disabled: render standard dashboard
         return Scaffold(
           appBar: AppBar(
-            title: Text(
-              'Ever Dialer PC',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSurface,
+            flexibleSpace: WindowDragArea(
+              onStartDrag: () => _systemService.startWindowDrag(),
+              onDoubleTap: () => _systemService.toggleMaximizeWindow(),
+              child: const SizedBox.expand(),
+            ),
+            title: WindowDragArea(
+              onStartDrag: () => _systemService.startWindowDrag(),
+              onDoubleTap: () => _systemService.toggleMaximizeWindow(),
+              child: Text(
+                'Ever Dialer PC',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurface,
+                ),
               ),
             ),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.settings_outlined),
-                tooltip: 'Settings',
-                onPressed: _openSettings,
+              WindowHeaderActions(
+                syncService: _syncService,
+                systemService: _systemService,
               ),
-              const SizedBox(width: 8),
             ],
           ),
           body: ListenableBuilder(
@@ -497,7 +512,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Click the Settings icon at the top right to configure Bluetooth Connection & Sync, audio output, or appearance.',
+                              'Click "Bluetooth & Sync Settings" above or Settings on the navigation rail to configure Bluetooth Connection & Sync, audio output, or appearance.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: colorScheme.outline,
                               ),
@@ -512,7 +527,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                     // Footer Info
                     Center(
                       child: Text(
-                        'PipeWire A2DP Audio Sink • BlueZ 5 • Fedora Linux',
+                        'PipeWire A2DP Audio Sink • BlueZ 5 • Fedora Linux • v1.0.0',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colorScheme.outline,
                         ),
