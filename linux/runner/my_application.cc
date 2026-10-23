@@ -4,6 +4,8 @@
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
+#include <signal.h>
+#include <unistd.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -23,12 +25,11 @@ static guint g_sni_object_id = 0;
 
 static void show_or_present_window(GtkWindow* window) {
   if (window == nullptr) return;
-  if (gtk_widget_get_visible(GTK_WIDGET(window))) {
-    gtk_window_present(window);
-  } else {
+  if (!gtk_widget_get_visible(GTK_WIDGET(window))) {
     gtk_widget_show(GTK_WIDGET(window));
-    gtk_window_present(window);
   }
+  gtk_window_deiconify(window);
+  gtk_window_present(window);
 }
 
 static void show_tray_popup_menu(GtkWindow* window, guint button, guint32 activate_time) {
@@ -410,6 +411,7 @@ static gboolean my_application_local_command_line(GApplication* application,
   // Strip out the first argument as it is the binary name.
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
   self->start_hidden = FALSE;
+  gboolean is_debug_session = FALSE;
 
   if (arguments != nullptr && *arguments != nullptr) {
     for (char** arg = *arguments + 1; *arg != nullptr; ++arg) {
@@ -417,7 +419,12 @@ static gboolean my_application_local_command_line(GApplication* application,
           g_strcmp0(*arg, "--background") == 0 ||
           g_strcmp0(*arg, "--minimized") == 0) {
         self->start_hidden = TRUE;
-        break;
+      }
+      if (g_str_has_prefix(*arg, "--vm-service-port") ||
+          g_str_has_prefix(*arg, "--observatory-port") ||
+          g_strcmp0(*arg, "--start-paused") == 0 ||
+          g_strcmp0(*arg, "--enable-asserts") == 0) {
+        is_debug_session = TRUE;
       }
     }
   }
@@ -427,6 +434,42 @@ static gboolean my_application_local_command_line(GApplication* application,
     g_warning("Failed to register: %s", error->message);
     *exit_status = 1;
     return TRUE;
+  }
+
+  if (g_application_get_is_remote(application)) {
+    if (is_debug_session) {
+      // If launching from VS Code / debugger, terminate the old instance so the new debug session can take over
+      GDBusConnection* bus = g_application_get_dbus_connection(application);
+      if (bus != nullptr) {
+        g_autoptr(GVariant) reply = g_dbus_connection_call_sync(
+            bus,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "GetConnectionUnixProcessID",
+            g_variant_new("(s)", APPLICATION_ID),
+            G_VARIANT_TYPE("(u)"),
+            G_DBUS_CALL_FLAGS_NONE,
+            1000,
+            nullptr,
+            nullptr);
+        if (reply != nullptr) {
+          guint32 pid = 0;
+          g_variant_get(reply, "(u)", &pid);
+          if (pid > 0 && pid != (guint32)getpid()) {
+            kill((pid_t)pid, SIGTERM);
+            g_usleep(250000); // 250ms
+          }
+        }
+      }
+    } else {
+      // Normal application launch: bring existing window to the front and exit second process
+      if (!self->start_hidden) {
+        g_application_activate(application);
+      }
+      *exit_status = 0;
+      return TRUE;
+    }
   }
 
   g_application_activate(application);
@@ -482,5 +525,5 @@ MyApplication* my_application_new() {
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     G_APPLICATION_DEFAULT_FLAGS, nullptr));
 }

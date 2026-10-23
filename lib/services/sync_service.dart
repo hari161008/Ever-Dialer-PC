@@ -394,6 +394,26 @@ class SyncedTelemetry {
     'isWifiConnected': isWifiConnected,
     'cellularLevel': cellularLevel,
   };
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is SyncedTelemetry &&
+        other.batteryLevel == batteryLevel &&
+        other.isBatteryCharging == isBatteryCharging &&
+        other.wifiLevel == wifiLevel &&
+        other.isWifiConnected == isWifiConnected &&
+        other.cellularLevel == cellularLevel;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        batteryLevel,
+        isBatteryCharging,
+        wifiLevel,
+        isWifiConnected,
+        cellularLevel,
+      );
 }
 
 class PcSyncService extends ChangeNotifier {
@@ -420,6 +440,7 @@ class PcSyncService extends ChangeNotifier {
 
   // Real phone data (NO fake/unsaved contacts)
   List<SyncedContact> _contacts = [];
+  final Map<String, String?> _phonePhotoCache = {};
   List<SyncedCallLog> _callLogs = [];
   List<SyncedSmsThread> _smsThreads = [];
   List<SyncedNote> _notes = [];
@@ -678,8 +699,11 @@ class PcSyncService extends ChangeNotifier {
       } else if (event == 'telemetry') {
         final payload = data['payload'];
         if (payload is Map<String, dynamic>) {
-          _telemetry = SyncedTelemetry.fromJson(payload);
-          notifyListeners();
+          final newTelem = SyncedTelemetry.fromJson(payload);
+          if (newTelem != _telemetry) {
+            _telemetry = newTelem;
+            notifyListeners();
+          }
         }
       }
     } catch (e) {
@@ -708,6 +732,7 @@ class PcSyncService extends ChangeNotifier {
   void _applyPayload(Map<String, dynamic> payload, {bool saveCache = true}) {
     // 1. Contacts
     if (payload.containsKey('contacts')) {
+      _phonePhotoCache.clear();
       final list = payload['contacts'];
       if (list is List) {
         _contacts = list
@@ -826,25 +851,40 @@ class PcSyncService extends ChangeNotifier {
   }
 
   /// Look up contact photo (as Base64) by phone number.
-  /// Matches on exact digits or normalized last 7+ digits.
+  /// Matches on exact digits or normalized last 7+ digits across all phone numbers.
   String? getPhotoBase64ForNumber(String number) {
     if (!_syncContactPfpEnabled) return null;
     final cleanTarget = number.replaceAll(RegExp(r'\D'), '');
     if (cleanTarget.isEmpty) return null;
 
+    if (_phonePhotoCache.containsKey(cleanTarget)) {
+      return _phonePhotoCache[cleanTarget];
+    }
+
     for (final contact in _contacts) {
       if (contact.photoBase64 == null || contact.photoBase64!.isEmpty) continue;
-      final cleanContact = contact.phone.replaceAll(RegExp(r'\D'), '');
-      if (cleanContact.isEmpty) continue;
 
-      if (cleanContact == cleanTarget ||
-          (cleanContact.length >= 7 &&
-              cleanTarget.length >= 7 &&
-              (cleanContact.endsWith(cleanTarget) ||
-                  cleanTarget.endsWith(cleanContact)))) {
-        return contact.photoBase64;
+      final numbersToCheck = <String>[contact.phone];
+      for (final p in contact.phones) {
+        if (p.number.isNotEmpty) numbersToCheck.add(p.number);
+      }
+
+      for (final num in numbersToCheck) {
+        final cleanContact = num.replaceAll(RegExp(r'\D'), '');
+        if (cleanContact.isEmpty) continue;
+
+        if (cleanContact == cleanTarget ||
+            (cleanContact.length >= 7 &&
+                cleanTarget.length >= 7 &&
+                (cleanContact.endsWith(cleanTarget) ||
+                    cleanTarget.endsWith(cleanContact)))) {
+          _phonePhotoCache[cleanTarget] = contact.photoBase64;
+          return contact.photoBase64;
+        }
       }
     }
+
+    _phonePhotoCache[cleanTarget] = null;
     return null;
   }
 

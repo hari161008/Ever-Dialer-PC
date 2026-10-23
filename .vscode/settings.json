@@ -1,5 +1,7 @@
 {
   "dart.flutterSdkPath": "/home/hari/.local/opt/flutter",
   "editor.formatOnSave": true,
-  "files.autoSave": "onFocusChange"
+  "files.autoSave": "onFocusChange",
+  "dart.debugExternalPackageLibraries": false,
+  "dart.debugSdkLibraries": false
 }

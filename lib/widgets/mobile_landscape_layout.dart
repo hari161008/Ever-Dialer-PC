@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/sync_service.dart';
+import 'smooth_contact_avatar.dart';
 
 class MobileLandscapeLayout extends StatefulWidget {
   final PcSyncService syncService;
@@ -47,15 +47,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   void dispose() {
     _smsInputController.dispose();
     super.dispose();
-  }
-
-  ImageProvider? _getAvatarImage(String? photoBase64) {
-    if (photoBase64 == null || photoBase64.isEmpty) return null;
-    try {
-      return MemoryImage(base64Decode(photoBase64));
-    } catch (_) {
-      return null;
-    }
   }
 
   void _initiateCall(String number, {String? displayName, String? photoBase64}) {
@@ -105,7 +96,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final avatarImg = _getAvatarImage(photoBase64);
     final hasCustomName = displayName.trim().isNotEmpty && displayName.trim() != number.trim();
 
     showDialog(
@@ -158,39 +148,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     const SizedBox(height: 20),
 
                     // Contact Avatar
-                    Container(
-                      width: 84,
-                      height: 84,
-                      decoration: BoxDecoration(
-                        color: colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(26),
-                        boxShadow: [
-                          BoxShadow(
-                            color: colorScheme.primary.withValues(alpha: 0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: avatarImg != null
-                          ? Image(image: avatarImg, fit: BoxFit.cover)
-                          : Center(
-                              child: hasCustomName
-                                  ? Text(
-                                      displayName.trim().substring(0, 1).toUpperCase(),
-                                      style: TextStyle(
-                                        fontSize: 32,
-                                        fontWeight: FontWeight.bold,
-                                        color: colorScheme.onPrimaryContainer,
-                                      ),
-                                    )
-                                  : Icon(
-                                      Icons.person,
-                                      size: 42,
-                                      color: colorScheme.onPrimaryContainer,
-                                    ),
-                            ),
+                    SmoothContactAvatar(
+                      radius: 42,
+                      photoBase64: photoBase64,
+                      initials: hasCustomName
+                          ? displayName.trim().substring(0, 1).toUpperCase()
+                          : null,
+                      backgroundColor: colorScheme.primaryContainer,
+                      foregroundColor: colorScheme.onPrimaryContainer,
                     ),
                     const SizedBox(height: 18),
 
@@ -815,7 +780,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                                 separatorBuilder: (context, index) => const SizedBox(height: 4),
                                 itemBuilder: (context, idx) {
                                   final contact = matchedContacts[idx];
-                                  final avatarImg = _getAvatarImage(contact.photoBase64);
                                   return InkWell(
                                     borderRadius: BorderRadius.circular(14),
                                     onTap: () {
@@ -832,20 +796,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                                       ),
                                       child: Row(
                                         children: [
-                                          CircleAvatar(
+                                          SmoothContactAvatar(
                                             radius: 16,
-                                            backgroundImage: avatarImg,
+                                            photoBase64: contact.photoBase64,
+                                            initials: contact.initials,
                                             backgroundColor: colorScheme.primaryContainer,
-                                            child: avatarImg == null
-                                                ? Text(
-                                                    contact.initials,
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight: FontWeight.bold,
-                                                      color: colorScheme.onPrimaryContainer,
-                                                    ),
-                                                  )
-                                                : null,
+                                            foregroundColor: colorScheme.onPrimaryContainer,
                                           ),
                                           const SizedBox(width: 10),
                                           Expanded(
@@ -1411,24 +1367,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Builder(
-                              builder: (context) {
-                                final avatarImg = _getAvatarImage(contact.photoBase64);
-                                return CircleAvatar(
-                                  radius: 22,
-                                  backgroundColor: colorScheme.primaryContainer,
-                                  backgroundImage: avatarImg,
-                                  child: avatarImg != null
-                                      ? null
-                                      : Text(
-                                          contact.initials,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: colorScheme.onPrimaryContainer,
-                                          ),
-                                        ),
-                                );
-                              },
+                            SmoothContactAvatar(
+                              radius: 22,
+                              photoBase64: contact.photoBase64,
+                              initials: contact.initials,
+                              backgroundColor: colorScheme.primaryContainer,
+                              foregroundColor: colorScheme.onPrimaryContainer,
                             ),
                             const SizedBox(height: 8),
                             Text(
@@ -1765,27 +1709,21 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         leading: Builder(
           builder: (context) {
             final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(log.number);
-            final avatarImg = _getAvatarImage(pfpBase64);
-            return CircleAvatar(
+            return SmoothContactAvatar(
               radius: 22,
+              photoBase64: pfpBase64,
+              initials: hasContactName && log.name.trim().isNotEmpty
+                  ? log.name.trim()[0].toUpperCase()
+                  : null,
+              fallbackChild: !hasContactName || log.name.trim().isEmpty
+                  ? Icon(
+                      Icons.person,
+                      size: 22,
+                      color: colorScheme.onSurfaceVariant,
+                    )
+                  : null,
               backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.65),
-              backgroundImage: avatarImg,
-              child: avatarImg != null
-                  ? null
-                  : (hasContactName && log.name.trim().isNotEmpty
-                      ? Text(
-                          log.name.trim()[0].toUpperCase(),
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: colorScheme.onSurface,
-                          ),
-                        )
-                      : Icon(
-                          Icons.person,
-                          size: 22,
-                          color: colorScheme.onSurfaceVariant,
-                        )),
+              foregroundColor: colorScheme.onSurface,
             );
           },
         ),
@@ -2099,21 +2037,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         },
         leading: Builder(
           builder: (context) {
-            final avatarImg = _getAvatarImage(contact.photoBase64);
-            return CircleAvatar(
+            return SmoothContactAvatar(
               radius: 22,
+              photoBase64: contact.photoBase64,
+              initials: contact.initials,
               backgroundColor: colorScheme.primaryContainer,
-              backgroundImage: avatarImg,
-              child: avatarImg != null
-                  ? null
-                  : Text(
-                      contact.initials,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: colorScheme.onPrimaryContainer,
-                      ),
-                    ),
+              foregroundColor: colorScheme.onPrimaryContainer,
             );
           },
         ),
@@ -2198,7 +2127,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   Widget _buildContactInfoView(SyncedContact contact) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final avatarImg = _getAvatarImage(contact.photoBase64);
 
     // Matching call logs for Recent Activity
     final contactPhones = contact.phones.isNotEmpty
@@ -2295,20 +2223,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         ),
                       ),
                     ),
-                    CircleAvatar(
+                    SmoothContactAvatar(
                       radius: 52,
+                      photoBase64: contact.photoBase64,
+                      initials: contact.initials,
                       backgroundColor: colorScheme.primaryContainer,
-                      backgroundImage: avatarImg,
-                      child: avatarImg != null
-                          ? null
-                          : Text(
-                              contact.initials,
-                              style: TextStyle(
-                                fontSize: 34,
-                                fontWeight: FontWeight.bold,
-                                color: colorScheme.onPrimaryContainer,
-                              ),
-                            ),
+                      foregroundColor: colorScheme.onPrimaryContainer,
                     ),
                   ],
                 ),
@@ -3055,23 +2975,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           Builder(
                             builder: (context) {
                               final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(thread.phone);
-                              final avatarImg = _getAvatarImage(pfpBase64);
-                              return CircleAvatar(
+                              return SmoothContactAvatar(
                                 radius: 16,
+                                photoBase64: pfpBase64,
+                                initials: thread.contactName.trim().isNotEmpty
+                                    ? thread.contactName.trim()[0].toUpperCase()
+                                    : '?',
                                 backgroundColor: colorScheme.primaryContainer,
-                                backgroundImage: avatarImg,
-                                child: avatarImg != null
-                                    ? null
-                                    : Text(
-                                        thread.contactName.trim().isNotEmpty
-                                            ? thread.contactName.trim()[0].toUpperCase()
-                                            : '?',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                          color: colorScheme.onPrimaryContainer,
-                                        ),
-                                      ),
+                                foregroundColor: colorScheme.onPrimaryContainer,
                               );
                             },
                           ),
@@ -4200,31 +4111,25 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               Builder(
                 builder: (context) {
                   final pfpBase64 = widget.syncService.getPhotoBase64ForNumber(thread.phone);
-                  final avatarImg = _getAvatarImage(pfpBase64);
-                  return CircleAvatar(
+                  return SmoothContactAvatar(
                     radius: 20,
+                    photoBase64: pfpBase64,
+                    initials: hasName && thread.contactName.trim().isNotEmpty
+                        ? thread.contactName.trim()[0].toUpperCase()
+                        : null,
+                    fallbackChild: !hasName || thread.contactName.trim().isEmpty
+                        ? Icon(
+                            Icons.person,
+                            size: 20,
+                            color: colorScheme.onSurfaceVariant,
+                          )
+                        : null,
                     backgroundColor: isUnread
                         ? colorScheme.primaryContainer
                         : colorScheme.surfaceContainerHighest,
-                    backgroundImage: avatarImg,
-                    child: avatarImg != null
-                        ? null
-                        : (hasName && thread.contactName.trim().isNotEmpty
-                            ? Text(
-                                thread.contactName.trim()[0].toUpperCase(),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  color: isUnread
-                                      ? colorScheme.onPrimaryContainer
-                                      : colorScheme.onSurface,
-                                ),
-                              )
-                            : Icon(
-                                Icons.person,
-                                size: 20,
-                                color: colorScheme.onSurfaceVariant,
-                              )),
+                    foregroundColor: isUnread
+                        ? colorScheme.onPrimaryContainer
+                        : colorScheme.onSurface,
                   );
                 },
               ),
