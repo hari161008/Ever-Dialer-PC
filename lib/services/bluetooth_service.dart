@@ -143,6 +143,9 @@ class BluetoothService extends ChangeNotifier {
       notifyListeners();
     }
 
+    // Query current audio state immediately so we know the system volume and mute state
+    await _queryAudioState();
+
     if (autoRefresh) {
       if (savedEnabled) {
         // If persisted as ON, ensure hardware is active
@@ -205,10 +208,7 @@ class BluetoothService extends ChangeNotifier {
         await Process.run('bluetoothctl', ['discoverable', 'on']);
         await Process.run('bluetoothctl', ['pairable', 'on']);
 
-        // 5. Ensure speakers are unmuted
-        await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
-
-        // 6. Ensure device is trusted and audio profile is active if already connected
+        // 5. Ensure device is trusted and audio profile is active if already connected
         if (_state.connectedDevice != null) {
           await Process.run('bluetoothctl', ['trust', _state.connectedDevice!.mac]);
           await _ensureBluezProfileActive();
@@ -281,7 +281,6 @@ class BluetoothService extends ChangeNotifier {
   Future<void> setOutputSink(String sinkName) async {
     try {
       await Process.run('pactl', ['set-default-sink', sinkName]);
-      await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
       await refresh();
     } catch (_) {}
   }
@@ -326,10 +325,12 @@ class BluetoothService extends ChangeNotifier {
         }
       } catch (_) {}
 
-      // 5. Unmute default sink and ensure reasonable volume
-      await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
-      if (_state.speakerVolume < 0.2) {
-        await setVolume(0.75);
+      // 5. Unmute default sink only if user has not set volume to 0
+      if (_state.speakerVolume > 0) {
+        await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
+        if (_state.speakerVolume < 0.2) {
+          await setVolume(0.75);
+        }
       }
 
       _state = _state.copyWith(

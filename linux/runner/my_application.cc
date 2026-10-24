@@ -22,6 +22,7 @@ static GtkStatusIcon* g_status_icon = nullptr;
 static gboolean g_system_tray_enabled = TRUE;
 static GDBusConnection* g_dbus_conn = nullptr;
 static guint g_sni_object_id = 0;
+static guint g_dbusmenu_object_id = 0;
 
 static void show_or_present_window(GtkWindow* window) {
   if (window == nullptr) return;
@@ -32,23 +33,239 @@ static void show_or_present_window(GtkWindow* window) {
   gtk_window_present(window);
 }
 
+static void quit_application(GtkWindow* window) {
+  g_system_tray_enabled = FALSE;
+  GApplication* app = g_application_get_default();
+  if (app != nullptr) {
+    g_application_quit(app);
+  } else if (window != nullptr) {
+    gtk_widget_destroy(GTK_WIDGET(window));
+  }
+}
+
 static void show_tray_popup_menu(GtkWindow* window, guint button, guint32 activate_time) {
   if (window == nullptr) return;
   GtkWidget* menu = gtk_menu_new();
 
-  GtkWidget* open_item = gtk_menu_item_new_with_label("Open Ever Dialer");
+  GtkWidget* open_item = gtk_menu_item_new_with_label("Open App");
   g_signal_connect_swapped(open_item, "activate", G_CALLBACK(show_or_present_window), window);
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), open_item);
 
   GtkWidget* sep = gtk_separator_menu_item_new();
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), sep);
 
-  GtkWidget* quit_item = gtk_menu_item_new_with_label("Quit");
-  g_signal_connect_swapped(quit_item, "activate", G_CALLBACK(gtk_widget_destroy), window);
+  GtkWidget* quit_item = gtk_menu_item_new_with_label("Quit App");
+  g_signal_connect_swapped(quit_item, "activate", G_CALLBACK(quit_application), window);
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit_item);
 
   gtk_widget_show_all(menu);
   gtk_menu_popup_at_pointer(GTK_MENU(menu), nullptr);
+}
+
+// ── DBusMenu implementation for native desktop panel tray context menus ──────
+static const gchar dbusmenu_introspection_xml[] =
+  "<node>"
+  "  <interface name='com.canonical.dbusmenu'>"
+  "    <property name='Version' type='u' access='read'/>"
+  "    <property name='Status' type='s' access='read'/>"
+  "    <method name='GetLayout'>"
+  "      <arg type='i' name='parentId' direction='in'/>"
+  "      <arg type='i' name='recursionDepth' direction='in'/>"
+  "      <arg type='as' name='propertyNames' direction='in'/>"
+  "      <arg type='u' name='revision' direction='out'/>"
+  "      <arg type='(ia{sv}av)' name='layout' direction='out'/>"
+  "    </method>"
+  "    <method name='GetGroupProperties'>"
+  "      <arg type='ai' name='ids' direction='in'/>"
+  "      <arg type='as' name='propertyNames' direction='in'/>"
+  "      <arg type='a(ia{sv})' name='properties' direction='out'/>"
+  "    </method>"
+  "    <method name='GetProperty'>"
+  "      <arg type='i' name='id' direction='in'/>"
+  "      <arg type='s' name='name' direction='in'/>"
+  "      <arg type='v' name='value' direction='out'/>"
+  "    </method>"
+  "    <method name='Event'>"
+  "      <arg type='i' name='id' direction='in'/>"
+  "      <arg type='s' name='eventId' direction='in'/>"
+  "      <arg type='v' name='data' direction='in'/>"
+  "      <arg type='u' name='timestamp' direction='in'/>"
+  "    </method>"
+  "    <method name='EventGroup'>"
+  "      <arg type='a(isvu)' name='events' direction='in'/>"
+  "      <arg type='ai' name='idErrors' direction='out'/>"
+  "    </method>"
+  "    <method name='AboutToShow'>"
+  "      <arg type='i' name='id' direction='in'/>"
+  "      <arg type='b' name='needUpdate' direction='out'/>"
+  "    </method>"
+  "  </interface>"
+  "</node>";
+
+static GVariant* build_menu_layout() {
+  GVariantBuilder root_builder;
+  g_variant_builder_init(&root_builder, G_VARIANT_TYPE("(ia{sv}av)"));
+  g_variant_builder_add(&root_builder, "i", 0);
+
+  // root properties
+  g_variant_builder_open(&root_builder, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_add(&root_builder, "{sv}", "children-display", g_variant_new_string("submenu"));
+  g_variant_builder_close(&root_builder);
+
+  // children array (av)
+  g_variant_builder_open(&root_builder, G_VARIANT_TYPE("av"));
+
+  // Item 1: Open App
+  {
+    GVariantBuilder item1;
+    g_variant_builder_init(&item1, G_VARIANT_TYPE("(ia{sv}av)"));
+    g_variant_builder_add(&item1, "i", 1);
+    g_variant_builder_open(&item1, G_VARIANT_TYPE("a{sv}"));
+    g_variant_builder_add(&item1, "{sv}", "label", g_variant_new_string("Open App"));
+    g_variant_builder_add(&item1, "{sv}", "enabled", g_variant_new_boolean(TRUE));
+    g_variant_builder_close(&item1);
+    g_variant_builder_open(&item1, G_VARIANT_TYPE("av"));
+    g_variant_builder_close(&item1);
+    g_variant_builder_add(&root_builder, "v", g_variant_builder_end(&item1));
+  }
+
+  // Item 2: Quit App
+  {
+    GVariantBuilder item2;
+    g_variant_builder_init(&item2, G_VARIANT_TYPE("(ia{sv}av)"));
+    g_variant_builder_add(&item2, "i", 2);
+    g_variant_builder_open(&item2, G_VARIANT_TYPE("a{sv}"));
+    g_variant_builder_add(&item2, "{sv}", "label", g_variant_new_string("Quit App"));
+    g_variant_builder_add(&item2, "{sv}", "enabled", g_variant_new_boolean(TRUE));
+    g_variant_builder_close(&item2);
+    g_variant_builder_open(&item2, G_VARIANT_TYPE("av"));
+    g_variant_builder_close(&item2);
+    g_variant_builder_add(&root_builder, "v", g_variant_builder_end(&item2));
+  }
+
+  g_variant_builder_close(&root_builder);
+  return g_variant_builder_end(&root_builder);
+}
+
+static GVariant* build_group_properties(GVariant* ids_var) {
+  GVariantBuilder builder;
+  g_variant_builder_init(&builder, G_VARIANT_TYPE("a(ia{sv})"));
+
+  GVariantIter iter;
+  g_variant_iter_init(&iter, ids_var);
+  gint32 id = 0;
+  while (g_variant_iter_next(&iter, "i", &id)) {
+    if (id == 0) {
+      g_variant_builder_open(&builder, G_VARIANT_TYPE("(ia{sv})"));
+      g_variant_builder_add(&builder, "i", 0);
+      g_variant_builder_open(&builder, G_VARIANT_TYPE("a{sv}"));
+      g_variant_builder_add(&builder, "{sv}", "children-display", g_variant_new_string("submenu"));
+      g_variant_builder_close(&builder);
+      g_variant_builder_close(&builder);
+    } else if (id == 1) {
+      g_variant_builder_open(&builder, G_VARIANT_TYPE("(ia{sv})"));
+      g_variant_builder_add(&builder, "i", 1);
+      g_variant_builder_open(&builder, G_VARIANT_TYPE("a{sv}"));
+      g_variant_builder_add(&builder, "{sv}", "label", g_variant_new_string("Open App"));
+      g_variant_builder_add(&builder, "{sv}", "enabled", g_variant_new_boolean(TRUE));
+      g_variant_builder_close(&builder);
+      g_variant_builder_close(&builder);
+    } else if (id == 2) {
+      g_variant_builder_open(&builder, G_VARIANT_TYPE("(ia{sv})"));
+      g_variant_builder_add(&builder, "i", 2);
+      g_variant_builder_open(&builder, G_VARIANT_TYPE("a{sv}"));
+      g_variant_builder_add(&builder, "{sv}", "label", g_variant_new_string("Quit App"));
+      g_variant_builder_add(&builder, "{sv}", "enabled", g_variant_new_boolean(TRUE));
+      g_variant_builder_close(&builder);
+      g_variant_builder_close(&builder);
+    }
+  }
+  return g_variant_builder_end(&builder);
+}
+
+static void dbusmenu_method_call_cb(GDBusConnection* connection,
+                                    const gchar* sender,
+                                    const gchar* object_path,
+                                    const gchar* interface_name,
+                                    const gchar* method_name,
+                                    GVariant* parameters,
+                                    GDBusMethodInvocation* invocation,
+                                    gpointer user_data) {
+  GtkWindow* window = GTK_WINDOW(user_data);
+  if (g_strcmp0(method_name, "GetLayout") == 0) {
+    GVariant* layout = build_menu_layout();
+    g_dbus_method_invocation_return_value(invocation, g_variant_new("(u@(ia{sv}av))", (guint32)1, layout));
+  } else if (g_strcmp0(method_name, "GetGroupProperties") == 0) {
+    g_autoptr(GVariant) ids = g_variant_get_child_value(parameters, 0);
+    GVariant* props = build_group_properties(ids);
+    g_dbus_method_invocation_return_value(invocation, g_variant_new("(@a(ia{sv}))", props));
+  } else if (g_strcmp0(method_name, "GetProperty") == 0) {
+    gint32 id = 0;
+    const gchar* name = nullptr;
+    g_variant_get(parameters, "(is)", &id, &name);
+    if (g_strcmp0(name, "label") == 0) {
+      if (id == 1) {
+        g_dbus_method_invocation_return_value(invocation, g_variant_new("(v)", g_variant_new_string("Open App")));
+        return;
+      } else if (id == 2) {
+        g_dbus_method_invocation_return_value(invocation, g_variant_new("(v)", g_variant_new_string("Quit App")));
+        return;
+      }
+    } else if (g_strcmp0(name, "children-display") == 0 && id == 0) {
+      g_dbus_method_invocation_return_value(invocation, g_variant_new("(v)", g_variant_new_string("submenu")));
+      return;
+    }
+    g_dbus_method_invocation_return_value(invocation, g_variant_new("(v)", g_variant_new_string("")));
+  } else if (g_strcmp0(method_name, "AboutToShow") == 0) {
+    g_dbus_method_invocation_return_value(invocation, g_variant_new("(b)", FALSE));
+  } else if (g_strcmp0(method_name, "Event") == 0) {
+    gint32 id = 0;
+    const gchar* event_id = nullptr;
+    g_variant_get(parameters, "(isvu)", &id, &event_id, nullptr, nullptr);
+    if (g_strcmp0(event_id, "clicked") == 0) {
+      if (id == 1) {
+        show_or_present_window(window);
+      } else if (id == 2) {
+        quit_application(window);
+      }
+    }
+    g_dbus_method_invocation_return_value(invocation, nullptr);
+  } else if (g_strcmp0(method_name, "EventGroup") == 0) {
+    g_autoptr(GVariant) events = g_variant_get_child_value(parameters, 0);
+    GVariantIter iter;
+    g_variant_iter_init(&iter, events);
+    gint32 id = 0;
+    const gchar* event_id = nullptr;
+    while (g_variant_iter_next(&iter, "(isvu)", &id, &event_id, nullptr, nullptr)) {
+      if (g_strcmp0(event_id, "clicked") == 0) {
+        if (id == 1) {
+          show_or_present_window(window);
+        } else if (id == 2) {
+          quit_application(window);
+        }
+      }
+    }
+    GVariantBuilder err_builder;
+    g_variant_builder_init(&err_builder, G_VARIANT_TYPE("ai"));
+    g_dbus_method_invocation_return_value(invocation, g_variant_new("(@ai)", g_variant_builder_end(&err_builder)));
+  } else {
+    g_dbus_method_invocation_return_value(invocation, nullptr);
+  }
+}
+
+static GVariant* dbusmenu_get_property_cb(GDBusConnection* connection,
+                                          const gchar* sender,
+                                          const gchar* object_path,
+                                          const gchar* interface_name,
+                                          const gchar* property_name,
+                                          GError** error,
+                                          gpointer user_data) {
+  if (g_strcmp0(property_name, "Version") == 0) {
+    return g_variant_new_uint32(3);
+  } else if (g_strcmp0(property_name, "Status") == 0) {
+    return g_variant_new_string("normal");
+  }
+  return nullptr;
 }
 
 // ── FreeDesktop / KDE StatusNotifierItem (SNI) D-Bus implementation ──────────
@@ -128,7 +345,7 @@ static GVariant* sni_get_property_cb(GDBusConnection* connection,
   } else if (g_strcmp0(property_name, "ItemIsMenu") == 0) {
     return g_variant_new_boolean(FALSE);
   } else if (g_strcmp0(property_name, "Menu") == 0) {
-    return g_variant_new_object_path("/NO_DBUSMENU");
+    return g_variant_new_object_path("/MenuBar");
   }
   return nullptr;
 }
@@ -151,6 +368,27 @@ static void update_system_tray(GtkWindow* window, gboolean enabled) {
       g_dbus_conn = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &conn_err);
     }
     if (g_dbus_conn != nullptr && g_sni_object_id == 0) {
+      // Register com.canonical.dbusmenu for native tray context menus
+      if (g_dbusmenu_object_id == 0) {
+        g_autoptr(GError) menu_err = nullptr;
+        g_autoptr(GDBusNodeInfo) menu_node_info = g_dbus_node_info_new_for_xml(dbusmenu_introspection_xml, &menu_err);
+        if (menu_node_info != nullptr) {
+          static const GDBusInterfaceVTable dbusmenu_vtable = {
+            dbusmenu_method_call_cb,
+            dbusmenu_get_property_cb,
+            nullptr
+          };
+          g_dbusmenu_object_id = g_dbus_connection_register_object(
+              g_dbus_conn,
+              "/MenuBar",
+              menu_node_info->interfaces[0],
+              &dbusmenu_vtable,
+              window,
+              nullptr,
+              &menu_err);
+        }
+      }
+
       g_autoptr(GError) reg_err = nullptr;
       g_autoptr(GDBusNodeInfo) node_info = g_dbus_node_info_new_for_xml(sni_introspection_xml, &reg_err);
       if (node_info != nullptr) {
@@ -205,6 +443,10 @@ static void update_system_tray(GtkWindow* window, gboolean enabled) {
       g_signal_connect(g_status_icon, "popup-menu", G_CALLBACK(tray_icon_popup_menu_cb), window);
     }
   } else {
+    if (g_dbusmenu_object_id > 0 && g_dbus_conn != nullptr) {
+      g_dbus_connection_unregister_object(g_dbus_conn, g_dbusmenu_object_id);
+      g_dbusmenu_object_id = 0;
+    }
     if (g_sni_object_id > 0 && g_dbus_conn != nullptr) {
       g_dbus_connection_unregister_object(g_dbus_conn, g_sni_object_id);
       g_sni_object_id = 0;

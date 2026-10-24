@@ -134,6 +134,7 @@ class SyncedCallLog {
   final DateTime timestamp;
   final Duration duration;
   final int simSlot;
+  final int count;
 
   const SyncedCallLog({
     required this.id,
@@ -143,6 +144,7 @@ class SyncedCallLog {
     required this.timestamp,
     required this.duration,
     this.simSlot = 1,
+    this.count = 1,
   });
 
   factory SyncedCallLog.fromJson(Map<String, dynamic> json) {
@@ -179,6 +181,14 @@ class SyncedCallLog {
       durSec = int.tryParse(rawDur) ?? 0;
     }
 
+    int count = 1;
+    final rawCount = json['count'];
+    if (rawCount is int) {
+      count = rawCount;
+    } else if (rawCount is String) {
+      count = int.tryParse(rawCount) ?? 1;
+    }
+
     return SyncedCallLog(
       id: json['id']?.toString() ?? '${json['number']}_$rawTime',
       name: json['name']?.toString() ?? (json['number']?.toString() ?? 'Unknown'),
@@ -187,6 +197,7 @@ class SyncedCallLog {
       timestamp: time,
       duration: Duration(seconds: durSec),
       simSlot: (json['simSlot'] is int) ? (json['simSlot'] as int) + 1 : 1,
+      count: count,
     );
   }
 
@@ -198,6 +209,7 @@ class SyncedCallLog {
     'timestamp': timestamp.millisecondsSinceEpoch,
     'duration': duration.inSeconds,
     'simSlot': simSlot,
+    'count': count,
   };
 }
 
@@ -244,6 +256,86 @@ class SyncedSmsMessage {
     'isOutgoing': isOutgoing,
     'isPinned': isPinned,
     'isStarred': isStarred,
+  };
+}
+
+class SyncedSmsCategory {
+  final String id;
+  final String name;
+  final List<String> contactPhones;
+  final bool isCustom;
+  final bool isVisible;
+
+  const SyncedSmsCategory({
+    required this.id,
+    required this.name,
+    this.contactPhones = const [],
+    this.isCustom = false,
+    this.isVisible = true,
+  });
+
+  factory SyncedSmsCategory.fromJson(Map<String, dynamic> json) {
+    final phones = <String>[];
+    if (json['contactPhones'] is List) {
+      for (final p in json['contactPhones'] as List) {
+        phones.add(p.toString());
+      }
+    }
+    return SyncedSmsCategory(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      contactPhones: phones,
+      isCustom: json['isCustom'] == true,
+      isVisible: json['isVisible'] != false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'contactPhones': contactPhones,
+    'isCustom': isCustom,
+    'isVisible': isVisible,
+  };
+}
+
+class SyncedCallCategory {
+  final String id;
+  final String name;
+  final List<String> contactPhones;
+  final bool isCustom;
+  final bool isVisible;
+
+  const SyncedCallCategory({
+    required this.id,
+    required this.name,
+    this.contactPhones = const [],
+    this.isCustom = false,
+    this.isVisible = true,
+  });
+
+  factory SyncedCallCategory.fromJson(Map<String, dynamic> json) {
+    final phones = <String>[];
+    if (json['contactPhones'] is List) {
+      for (final p in json['contactPhones'] as List) {
+        phones.add(p.toString());
+      }
+    }
+    return SyncedCallCategory(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      contactPhones: phones,
+      isCustom: json['isCustom'] == true,
+      isVisible: json['isVisible'] != false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'contactPhones': contactPhones,
+    'isCustom': isCustom,
+    'isVisible': isVisible,
   };
 }
 
@@ -468,6 +560,10 @@ class PcSyncService extends ChangeNotifier {
   List<SyncedCallLog> get callLogs => List.unmodifiable(_callLogs);
   List<SyncedSmsThread> get smsThreads => List.unmodifiable(_smsThreads);
   List<SyncedNote> get notes => List.unmodifiable(_notes);
+  List<SyncedSmsCategory> _smsCategories = [];
+  List<SyncedSmsCategory> get smsCategories => List.unmodifiable(_smsCategories);
+  List<SyncedCallCategory> _callCategories = [];
+  List<SyncedCallCategory> get callCategories => List.unmodifiable(_callCategories);
 
   Set<String> _starredSmsMessageIds = {};
   Set<String> _pinnedSmsMessageIds = {};
@@ -524,6 +620,23 @@ class PcSyncService extends ChangeNotifier {
     _sendCommand({
       'cmd': 'pin_sms_message',
       'messageId': msgId,
+      'pinned': willPin,
+    });
+  }
+
+  void togglePinThread(String threadId) {
+    final willPin = !_pinnedSmsThreadIds.contains(threadId);
+    if (willPin) {
+      _pinnedSmsThreadIds.add(threadId);
+    } else {
+      _pinnedSmsThreadIds.remove(threadId);
+    }
+    _prefs?.setStringList('pinned_sms_threads', _pinnedSmsThreadIds.toList());
+    notifyListeners();
+
+    _sendCommand({
+      'cmd': 'pin_sms_thread',
+      'threadId': threadId,
       'pinned': willPin,
     });
   }
@@ -797,6 +910,24 @@ class PcSyncService extends ChangeNotifier {
       if (list is List) {
         _pinnedSmsThreadIds.addAll(list.map((e) => e.toString()));
         _prefs?.setStringList('pinned_sms_threads', _pinnedSmsThreadIds.toList());
+      }
+    }
+    if (payload.containsKey('smsCategories')) {
+      final list = payload['smsCategories'];
+      if (list is List) {
+        _smsCategories = list
+            .whereType<Map<String, dynamic>>()
+            .map((item) => SyncedSmsCategory.fromJson(item))
+            .toList();
+      }
+    }
+    if (payload.containsKey('callCategories')) {
+      final list = payload['callCategories'];
+      if (list is List) {
+        _callCategories = list
+            .whereType<Map<String, dynamic>>()
+            .map((item) => SyncedCallCategory.fromJson(item))
+            .toList();
       }
     }
 

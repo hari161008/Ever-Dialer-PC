@@ -411,7 +411,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       },
                     ),
                   ),
-                  if (activeIndex == 0 || activeIndex == 1 || activeIndex == 2)
+                  if (activeIndex == 1)
                     Positioned(
                       right: 24,
                       bottom: 24,
@@ -1455,6 +1455,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       }
     }
 
+    final syncedCallCategories = widget.syncService.callCategories.where((c) => c.isVisible).toList();
+
     final filteredLogs = allLogs.where((log) {
       final cleanNum = log.number.replaceAll(RegExp(r'[^\d+]'), '');
       final matchedContact = contactByCleanNumber[cleanNum];
@@ -1465,12 +1467,24 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       final isFav = (matchedContact?.isFavorite == true) ||
           favoritePhoneNumbers.contains(cleanNum);
 
-      if (_callFilter == 'Known' && !isKnown) return false;
-      if (_callFilter == 'Favourites' && !isFav) return false;
-      if (_callFilter == 'Unknown' && isKnown) return false;
-      if (_callFilter == 'Missed' && log.type != CallType.missed) return false;
-      if (_callFilter == 'Incoming' && log.type != CallType.incoming) return false;
-      if (_callFilter == 'Outgoing' && log.type != CallType.outgoing) return false;
+      final customCat = syncedCallCategories.firstWhere(
+        (c) => c.isCustom && (c.id == _callFilter || c.name == _callFilter),
+        orElse: () => const SyncedCallCategory(id: '', name: ''),
+      );
+      if (customCat.id.isNotEmpty) {
+        final matchesCustom = customCat.contactPhones.any((p) {
+          final cleanP = p.replaceAll(RegExp(r'[^\d+]'), '');
+          return cleanP.isNotEmpty && (cleanP == cleanNum || cleanNum.endsWith(cleanP) || cleanP.endsWith(cleanNum));
+        });
+        if (!matchesCustom) return false;
+      } else {
+        if ((_callFilter == 'Known' || _callFilter == 'Contacts') && !isKnown) return false;
+        if (_callFilter == 'Favourites' && !isFav) return false;
+        if (_callFilter == 'Unknown' && isKnown) return false;
+        if (_callFilter == 'Missed' && log.type != CallType.missed) return false;
+        if (_callFilter == 'Incoming' && log.type != CallType.incoming) return false;
+        if (_callFilter == 'Outgoing' && log.type != CallType.outgoing) return false;
+      }
       if (_callSearchQuery.isNotEmpty) {
         final q = _callSearchQuery.toLowerCase();
         return log.name.toLowerCase().contains(q) ||
@@ -1558,15 +1572,17 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: [
-                      'All',
-                      'Known',
-                      'Favourites',
-                      'Unknown',
-                      'Missed',
-                      'Incoming',
-                      'Outgoing',
-                    ].map((f) {
+                    children: (syncedCallCategories.isNotEmpty
+                        ? syncedCallCategories.map((c) => c.name).toList()
+                        : [
+                            'All',
+                            'Known',
+                            'Favourites',
+                            'Unknown',
+                            'Missed',
+                            'Incoming',
+                            'Outgoing',
+                          ]).map((f) {
                       final isSelected = _callFilter == f;
                       return Padding(
                         padding: const EdgeInsets.only(right: 6.0),
@@ -1627,11 +1643,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                               ),
                             ),
                           ),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: colorScheme.surfaceContainerLow,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
+                          Material(
+                            color: colorScheme.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(24),
                             clipBehavior: Clip.antiAlias,
                             child: Column(
                               children: [
@@ -1665,9 +1679,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     final colorScheme = theme.colorScheme;
     final isMissed = log.type == CallType.missed;
     final hasContactName = log.name.isNotEmpty && log.name != log.number;
-    final displayTitle = hasContactName
+    final baseTitle = hasContactName
         ? log.name
         : (log.number.isNotEmpty ? log.number : 'Unknown');
+    final displayTitle = log.count > 1 ? '$baseTitle (${log.count})' : baseTitle;
 
     IconData typeIcon;
     Color iconColor;
@@ -1751,25 +1766,23 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 const SizedBox(width: 6),
               ],
               if (log.simSlot > 0) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 1.5,
-                  ),
-                  decoration: BoxDecoration(
+                ClipPath(
+                  clipper: const _SimCardNotchClipper(),
+                  child: Container(
+                    width: 17,
+                    height: 20,
                     color: log.simSlot == 1
-                        ? const Color(0xFF00897B).withValues(alpha: 0.18)
-                        : const Color(0xFFE65100).withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    'SIM ${log.simSlot}',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.bold,
-                      color: log.simSlot == 1
-                          ? const Color(0xFF00897B)
-                          : const Color(0xFFE65100),
+                        ? const Color(0xFF2E7D32)
+                        : const Color(0xFFC62828),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '${log.simSlot}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        height: 1.0,
+                      ),
                     ),
                   ),
                 ),
@@ -1981,11 +1994,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           ),
                         ),
                       ),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: colorScheme.surfaceContainerLow,
-                          borderRadius: BorderRadius.circular(24),
-                        ),
+                      Material(
+                        color: colorScheme.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(24),
                         clipBehavior: Clip.antiAlias,
                         child: Column(
                           children: [
@@ -2752,6 +2763,13 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     }
 
     final filteredThreads = threads.where((t) {
+      final customCat = widget.syncService.smsCategories
+          .cast<SyncedSmsCategory?>()
+          .firstWhere((c) => c?.id == _selectedSmsCategory, orElse: () => null);
+      if (customCat != null && customCat.isCustom) {
+        return customCat.contactPhones.any((p) => _numbersMatch(p, t.phone));
+      }
+
       switch (_selectedSmsCategory) {
         case 'favourites':
           return t.isPinned ||
@@ -2799,7 +2817,93 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       activeThread = null;
     }
 
-    final groupedThreads = _groupSmsThreadsByDate(filteredThreads);
+    final pinnedThreads = filteredThreads.where((t) => widget.syncService.isThreadPinned(t.id)).toList();
+    final unpinnedThreads = filteredThreads.where((t) => !widget.syncService.isThreadPinned(t.id)).toList();
+    final groupedThreads = _groupSmsThreadsByDate(unpinnedThreads);
+
+    final List<Widget> threadWidgets = [];
+    if (pinnedThreads.isNotEmpty) {
+      threadWidgets.add(
+        Padding(
+          padding: const EdgeInsets.only(left: 6, bottom: 6, top: 4),
+          child: Text(
+            'Pinned',
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: colorScheme.primary,
+              fontSize: 12.5,
+            ),
+          ),
+        ),
+      );
+      threadWidgets.add(
+        Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (int i = 0; i < pinnedThreads.length; i++) ...[
+                if (i > 0)
+                  Divider(
+                    height: 1,
+                    thickness: 0.5,
+                    indent: 64,
+                    endIndent: 12,
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                  ),
+                _buildSmsThreadTile(pinnedThreads[i], activeThread, showFullDate: true),
+              ],
+            ],
+          ),
+        ),
+      );
+      threadWidgets.add(const SizedBox(height: 12));
+    }
+
+    for (final dateHeader in groupedThreads.keys) {
+      final threadsInGroup = groupedThreads[dateHeader]!;
+      threadWidgets.add(
+        Padding(
+          padding: const EdgeInsets.only(left: 6, bottom: 6, top: 4),
+          child: Text(
+            dateHeader,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: colorScheme.primary,
+              fontSize: 12.5,
+            ),
+          ),
+        ),
+      );
+      threadWidgets.add(
+        Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (int i = 0; i < threadsInGroup.length; i++) ...[
+                if (i > 0)
+                  Divider(
+                    height: 1,
+                    thickness: 0.5,
+                    indent: 64,
+                    endIndent: 12,
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                  ),
+                _buildSmsThreadTile(threadsInGroup[i], activeThread, showFullDate: false),
+              ],
+            ],
+          ),
+        ),
+      );
+      threadWidgets.add(const SizedBox(height: 12));
+    }
 
     return Row(
       children: [
@@ -2831,28 +2935,38 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 ),
               ),
 
-              // Category Filter Pills: All, Favourites, Starred, Contacts, Unknown, OTP
-              SizedBox(
-                height: 38,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      _buildSmsCategoryChip('all', 'All'),
-                      const SizedBox(width: 6),
-                      _buildSmsCategoryChip('favourites', 'Favourites'),
-                      const SizedBox(width: 6),
-                      _buildSmsCategoryChip('starred', 'Starred'),
-                      const SizedBox(width: 6),
-                      _buildSmsCategoryChip('contacts', 'Contacts'),
-                      const SizedBox(width: 6),
-                      _buildSmsCategoryChip('unknown', 'Unknown'),
-                      const SizedBox(width: 6),
-                      _buildSmsCategoryChip('otp', 'OTP'),
-                    ],
-                  ),
-                ),
+              // Category Filter Pills
+              Builder(
+                builder: (context) {
+                  final categories = widget.syncService.smsCategories
+                      .where((c) => c.isVisible)
+                      .toList();
+                  final chips = categories.isNotEmpty
+                      ? categories.map((c) => MapEntry(c.id, c.name)).toList()
+                      : const [
+                          MapEntry('all', 'All'),
+                          MapEntry('favourites', 'Favourites'),
+                          MapEntry('starred', 'Starred'),
+                          MapEntry('contacts', 'Contacts'),
+                          MapEntry('unknown', 'Unknown'),
+                          MapEntry('otp', 'OTP'),
+                        ];
+                  return SizedBox(
+                    height: 38,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        children: [
+                          for (int i = 0; i < chips.length; i++) ...[
+                            if (i > 0) const SizedBox(width: 6),
+                            _buildSmsCategoryChip(chips[i].key, chips[i].value),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 8),
 
@@ -2867,52 +2981,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           ),
                         ),
                       )
-                    : ListView.builder(
+                    : ListView(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        itemCount: groupedThreads.length,
-                        itemBuilder: (context, groupIndex) {
-                          final dateHeader = groupedThreads.keys.elementAt(groupIndex);
-                          final threadsInGroup = groupedThreads[dateHeader]!;
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(left: 6, bottom: 6, top: 4),
-                                child: Text(
-                                  dateHeader,
-                                  style: theme.textTheme.labelMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: colorScheme.primary,
-                                    fontSize: 12.5,
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: colorScheme.surfaceContainerLow,
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                clipBehavior: Clip.antiAlias,
-                                child: Column(
-                                  children: [
-                                    for (int i = 0; i < threadsInGroup.length; i++) ...[
-                                      if (i > 0)
-                                        Divider(
-                                          height: 1,
-                                          thickness: 0.5,
-                                          indent: 64,
-                                          endIndent: 12,
-                                          color: colorScheme.outlineVariant.withValues(alpha: 0.25),
-                                        ),
-                                      _buildSmsThreadTile(threadsInGroup[i], activeThread),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                            ],
-                          );
-                        },
+                        children: threadWidgets,
                       ),
               ),
             ],
@@ -3032,6 +3103,77 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 ),
               ],
             ),
+          ),
+
+          // Top Pinned Message Banner
+          Builder(
+            builder: (context) {
+              final pinnedMsgs = thread.messages
+                  .where((m) => widget.syncService.isMessagePinned(m.id))
+                  .toList();
+              if (pinnedMsgs.isEmpty) return const SizedBox.shrink();
+              final latestPinned = pinnedMsgs.last;
+              return Container(
+                margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.push_pin,
+                      size: 18,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            pinnedMsgs.length > 1
+                                ? 'Pinned message (${pinnedMsgs.length})'
+                                : 'Pinned message',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            latestPinned.body.isNotEmpty
+                                ? latestPinned.body
+                                : 'MMS Message',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 16),
+                      tooltip: 'Unpin message',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      onPressed: () {
+                        widget.syncService.togglePinMessage(latestPinned.id);
+                      },
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
 
           // Messages list with mobile date headers & bubble styling
@@ -3491,6 +3633,29 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
       ];
       return '${months[dt.month - 1]} ${dt.day}';
+    }
+  }
+
+  String _formatPinnedConversationDate(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final itemDate = DateTime(dt.year, dt.month, dt.day);
+    final diffDays = today.difference(itemDate).inDays;
+    final timeStr = _formatTime(dt);
+
+    if (diffDays == 0) {
+      return 'Today, $timeStr';
+    } else if (diffDays == 1) {
+      return 'Yesterday, $timeStr';
+    } else if (diffDays < 7) {
+      const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      return '${weekdays[dt.weekday - 1]}, $timeStr';
+    } else {
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      return '${months[dt.month - 1]} ${dt.day}, $timeStr';
     }
   }
 
@@ -3968,10 +4133,18 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     final displayName = thread.contactName.isNotEmpty && thread.contactName != thread.phone ? thread.contactName : thread.phone;
     final isUnread = thread.unreadCount > 0;
 
+    final isPinned = widget.syncService.isThreadPinned(thread.id);
+
     _showItemContextMenu(
       context: context,
       globalPosition: position,
       items: [
+        _buildMenuItem(
+          value: 'pin_thread',
+          icon: isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+          label: isPinned ? 'Unpin Chat' : 'Pin Chat',
+          iconColor: colorScheme.primary,
+        ),
         _buildMenuItem(
           value: 'open',
           icon: Icons.chat_bubble_outline,
@@ -4012,6 +4185,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       ],
       onSelected: (action) {
         switch (action) {
+          case 'pin_thread':
+            widget.syncService.togglePinThread(thread.id);
+            break;
           case 'open':
             setState(() {
               _selectedSmsThreadId = thread.id;
@@ -4076,7 +4252,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     );
   }
 
-  Widget _buildSmsThreadTile(SyncedSmsThread thread, SyncedSmsThread? activeThread) {
+  Widget _buildSmsThreadTile(SyncedSmsThread thread, SyncedSmsThread? activeThread, {bool showFullDate = false}) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isSelected = activeThread != null && thread.id == activeThread.id;
@@ -4156,7 +4332,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          _formatConversationDate(thread.timestamp),
+                          showFullDate
+                              ? _formatPinnedConversationDate(thread.timestamp)
+                              : _formatConversationDate(thread.timestamp),
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: isUnread
@@ -4797,4 +4975,23 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       ),
     );
   }
+}
+
+class _SimCardNotchClipper extends CustomClipper<Path> {
+  const _SimCardNotchClipper();
+
+  @override
+  Path getClip(Size size) {
+    final notch = (size.width < size.height ? size.width : size.height) * 0.42;
+    return Path()
+      ..moveTo(notch, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..lineTo(0, notch)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }

@@ -277,9 +277,10 @@ void main() {
     await tester.tap(find.text('Pin message'));
     await tester.pumpAndSettle();
     expect(mockSyncService.isMessagePinned('msg_1'), true);
+    expect(find.text('Pinned message'), findsOneWidget);
 
-    // Open context menu again and tap "Select text"
-    await tester.tap(msgFinder, buttons: kSecondaryButton);
+    // Open context menu again on message bubble and tap "Select text"
+    await tester.tap(find.text('First message').last, buttons: kSecondaryButton);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Select text'));
     await tester.pumpAndSettle();
@@ -604,6 +605,189 @@ void main() {
     expect(find.byIcon(Icons.battery_6_bar_rounded), findsOneWidget);
     expect(find.byIcon(Icons.network_wifi_3_bar_rounded), findsOneWidget);
     expect(find.byIcon(Icons.signal_cellular_4_bar_rounded), findsOneWidget);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('SMS view displays dedicated Pinned container above date containers, supports dynamic categories, and unpins via top banner', (WidgetTester tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('pc_sync_enabled', true);
+
+    final mockService = BluetoothService(autoStartTimer: false, autoRefresh: false, prefs: prefs);
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    mockSyncService.updateFromPayload({
+      'pinnedSmsThreadIds': ['thread_pinned_1'],
+      'pinnedSmsMessageIds': ['msg_pinned_content'],
+      'smsCategories': [
+        {'id': 'all', 'name': 'All', 'isCustom': false, 'isVisible': true},
+        {'id': 'work', 'name': 'Work', 'isCustom': true, 'isVisible': true, 'contactPhones': ['+9999999999']},
+      ],
+      'smsThreads': [
+        {
+          'id': 'thread_pinned_1',
+          'contactName': 'Boss',
+          'phone': '+9999999999',
+          'snippet': 'Urgent project task',
+          'timestamp': now,
+          'unreadCount': 0,
+          'isPinned': true,
+          'messages': [
+            {
+              'id': 'msg_pinned_content',
+              'body': 'Urgent project task',
+              'timestamp': now,
+              'isOutgoing': false,
+              'isPinned': true,
+            }
+          ],
+        },
+        {
+          'id': 'thread_normal_2',
+          'contactName': 'Friend',
+          'phone': '+8888888888',
+          'snippet': 'See you tomorrow',
+          'timestamp': now - 5000,
+          'unreadCount': 0,
+          'isPinned': false,
+          'messages': [
+            {
+              'id': 'msg_normal_content',
+              'body': 'See you tomorrow',
+              'timestamp': now - 5000,
+              'isOutgoing': false,
+            }
+          ],
+        },
+      ],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pump();
+
+    // Switch to SMS tab
+    await tester.tap(find.text('SMS'));
+    await tester.pumpAndSettle();
+
+    // Verify "Pinned" heading exists above "Boss"
+    expect(find.text('Pinned'), findsOneWidget);
+    expect(find.text('Boss'), findsWidgets);
+
+    // Verify dynamic category "Work" chip exists
+    expect(find.widgetWithText(FilterChip, 'Work'), findsOneWidget);
+
+    // Verify top pinned message banner is displayed with unpin button
+    expect(find.text('Pinned message'), findsOneWidget);
+    expect(find.byTooltip('Unpin message'), findsOneWidget);
+
+    // Tap Unpin message button in top banner
+    await tester.tap(find.byTooltip('Unpin message'));
+    await tester.pumpAndSettle();
+    expect(mockSyncService.isMessagePinned('msg_pinned_content'), false);
+    expect(find.text('Pinned message'), findsNothing);
+
+    // Select custom category "Work"
+    await tester.tap(find.widgetWithText(FilterChip, 'Work'));
+    await tester.pumpAndSettle();
+    expect(find.text('Boss'), findsWidgets);
+    expect(find.text('Friend'), findsNothing);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Call logs view displays dialpad button only in Call Logs screen, shows call count for repeated calls, and displays SIM notch badge', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    mockSyncService.updateFromPayload({
+      'callLogs': [
+        {
+          'id': 'log_1',
+          'name': 'Mom',
+          'number': '+1999888777',
+          'type': 'incoming',
+          'timestamp': now,
+          'duration': 120,
+          'simSlot': 0, // slot 0 -> 1-based SIM 1
+          'count': 3,
+        },
+        {
+          'id': 'log_2',
+          'name': 'Doctor',
+          'number': '+1222333444',
+          'type': 'outgoing',
+          'timestamp': now - 100000,
+          'duration': 45,
+          'simSlot': 1, // slot 1 -> 1-based SIM 2
+          'count': 1,
+        },
+      ],
+      'contacts': [
+        {
+          'id': 'c1',
+          'name': 'Mom',
+          'phone': '+1999888777',
+          'isFavorite': true,
+        }
+      ],
+      'sms': [],
+      'notes': [],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pump();
+
+    // Default tab is Favourites (index 0) - Dialpad FAB must NOT be visible
+    expect(find.widgetWithText(FloatingActionButton, 'Dialpad'), findsNothing);
+
+    // Switch to Calls tab (index 1) - Dialpad FAB MUST be visible
+    await tester.tap(find.text('Calls'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FloatingActionButton, 'Dialpad'), findsOneWidget);
+
+    // Verify call count "Mom (3)" is displayed
+    expect(find.text('Mom (3)'), findsOneWidget);
+
+    // Verify single call "Doctor" does not show count
+    expect(find.text('Doctor'), findsOneWidget);
+    expect(find.text('Doctor (1)'), findsNothing);
+
+    // Verify SIM notch badges show "1" and "2" and no longer text "SIM 1"
+    expect(find.text('SIM 1'), findsNothing);
+    expect(find.text('SIM 2'), findsNothing);
+    expect(find.byType(ClipPath), findsWidgets);
+
+    // Switch to Contacts tab (index 2) - Dialpad FAB must NOT be visible
+    await tester.tap(find.text('Contacts'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FloatingActionButton, 'Dialpad'), findsNothing);
+
+    // Switch to SMS tab (index 3) - Dialpad FAB must NOT be visible
+    await tester.tap(find.text('SMS'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FloatingActionButton, 'Dialpad'), findsNothing);
 
     mockService.dispose();
     mockSyncService.dispose();
