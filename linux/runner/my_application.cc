@@ -523,17 +523,21 @@ static void system_channel_method_call_cb(FlMethodChannel* channel, FlMethodCall
   } else if (g_strcmp0(method, "startDrag") == 0) {
     GdkSeat* seat = gdk_display_get_default_seat(gdk_display_get_default());
     GdkDevice* pointer = seat != nullptr ? gdk_seat_get_pointer(seat) : nullptr;
-    gint root_x = g_last_button_x;
-    gint root_y = g_last_button_y;
-    guint button = g_last_button > 0 ? g_last_button : 1;
-    guint32 time = g_last_button_time > 0 ? g_last_button_time : gtk_get_current_event_time();
-    if (time == 0) {
-      time = GDK_CURRENT_TIME;
-    }
-
-    if (root_x == 0 && root_y == 0 && pointer != nullptr) {
+    gint root_x = 0;
+    gint root_y = 0;
+    if (pointer != nullptr) {
       gdk_device_get_position(pointer, nullptr, &root_x, &root_y);
     }
+    if (root_x == 0 && root_y == 0) {
+      root_x = g_last_button_x;
+      root_y = g_last_button_y;
+    }
+    guint button = g_last_button > 0 ? g_last_button : 1;
+    guint32 time = gtk_get_current_event_time();
+    if (time == 0) {
+      time = g_last_button_time > 0 ? g_last_button_time : GDK_CURRENT_TIME;
+    }
+    g_last_button_time = 0;
 
     GdkWindow* gdk_win = gtk_widget_get_window(GTK_WIDGET(window));
     if (pointer != nullptr && gdk_win != nullptr) {

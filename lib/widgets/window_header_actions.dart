@@ -1,6 +1,37 @@
 import 'package:flutter/material.dart';
 import '../services/sync_service.dart';
 import '../services/system_service.dart';
+import 'volume_popup.dart';
+
+class _BottomUpClipper extends CustomClipper<Rect> {
+  final double fraction;
+
+  const _BottomUpClipper(this.fraction);
+
+  @override
+  Rect getClip(Size size) {
+    final top = size.height * (1.0 - fraction.clamp(0.0, 1.0));
+    return Rect.fromLTRB(0, top, size.width, size.height);
+  }
+
+  @override
+  bool shouldReclip(_BottomUpClipper oldClipper) => oldClipper.fraction != fraction;
+}
+
+class _LeftToRightClipper extends CustomClipper<Rect> {
+  final double fraction;
+
+  const _LeftToRightClipper(this.fraction);
+
+  @override
+  Rect getClip(Size size) {
+    final right = size.width * fraction.clamp(0.0, 1.0);
+    return Rect.fromLTRB(0, 0, right, size.height);
+  }
+
+  @override
+  bool shouldReclip(_LeftToRightClipper oldClipper) => oldClipper.fraction != fraction;
+}
 
 class WindowHeaderActions extends StatelessWidget {
   final PcSyncService? syncService;
@@ -14,40 +45,104 @@ class WindowHeaderActions extends StatelessWidget {
     this.leadingActions,
   });
 
-  IconData _getWifiIcon(int level, bool isConnected) {
+  Widget _buildWifiWidget(BuildContext context, int level, bool isConnected) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     if (!isConnected || level < 0) {
-      return Icons.wifi_off_rounded;
+      return Icon(
+        Icons.wifi_off_rounded,
+        size: 19,
+        color: colorScheme.outline.withValues(alpha: 0.6),
+      );
     }
+
+    final double fraction;
     switch (level) {
       case 0:
-        return Icons.signal_wifi_0_bar_rounded;
+        fraction = 0.0;
+        break;
       case 1:
-        return Icons.network_wifi_1_bar_rounded;
+        fraction = 0.38;
+        break;
       case 2:
-        return Icons.network_wifi_2_bar_rounded;
+        fraction = 0.62;
+        break;
       case 3:
-        return Icons.network_wifi_3_bar_rounded;
+        fraction = 0.82;
+        break;
       default:
-        return Icons.wifi_rounded;
+        fraction = 1.0;
     }
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Icon(
+          Icons.wifi_rounded,
+          size: 19,
+          color: colorScheme.outline.withValues(alpha: 0.25),
+        ),
+        if (fraction > 0.0)
+          ClipRect(
+            clipper: _BottomUpClipper(fraction),
+            child: Icon(
+              Icons.wifi_rounded,
+              size: 19,
+              color: colorScheme.primary,
+            ),
+          ),
+      ],
+    );
   }
 
-  IconData _getCellularIcon(int level) {
-    if (level < 0) {
-      return Icons.signal_cellular_off_rounded;
+  Widget _buildCellularWidget(BuildContext context, int level, bool isConnected) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    if (!isConnected || level < 0) {
+      return Icon(
+        Icons.signal_cellular_off_rounded,
+        size: 19,
+        color: colorScheme.outline.withValues(alpha: 0.6),
+      );
     }
+
+    final double fraction;
     switch (level) {
       case 0:
-        return Icons.signal_cellular_0_bar_rounded;
+        fraction = 0.0;
+        break;
       case 1:
-        return Icons.signal_cellular_alt_1_bar_rounded;
+        fraction = 0.32;
+        break;
       case 2:
-        return Icons.signal_cellular_alt_2_bar_rounded;
+        fraction = 0.58;
+        break;
       case 3:
-        return Icons.signal_cellular_alt_rounded;
+        fraction = 0.80;
+        break;
       default:
-        return Icons.signal_cellular_4_bar_rounded;
+        fraction = 1.0;
     }
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Icon(
+          Icons.signal_cellular_4_bar_rounded,
+          size: 19,
+          color: colorScheme.outline.withValues(alpha: 0.25),
+        ),
+        if (fraction > 0.0)
+          ClipRect(
+            clipper: _LeftToRightClipper(fraction),
+            child: Icon(
+              Icons.signal_cellular_4_bar_rounded,
+              size: 19,
+              color: colorScheme.primary,
+            ),
+          ),
+      ],
+    );
   }
 
   IconData _getBatteryIcon(int level, bool isCharging) {
@@ -77,6 +172,11 @@ class WindowHeaderActions extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
+    final listenables = <Listenable>[
+      ?syncService,
+      ?systemService,
+    ];
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -84,13 +184,13 @@ class WindowHeaderActions extends StatelessWidget {
         ...?leadingActions,
 
         // Telemetry & Bluetooth Status Indicators
-        if (syncService != null)
+        if (listenables.isNotEmpty)
           ListenableBuilder(
-            listenable: syncService!,
+            listenable: Listenable.merge(listenables),
             builder: (context, _) {
-              final isConnected = syncService!.isConnected;
-              final telem = syncService!.telemetry;
-              final deviceName = syncService!.connectedDeviceName ?? 'Phone';
+              final isConnected = syncService?.isConnected ?? false;
+              final telem = syncService?.telemetry ?? const SyncedTelemetry();
+              final deviceName = syncService?.connectedDeviceName ?? 'Phone';
 
               // 1. Bluetooth Connected/Disconnected Status Icon
               final bluetoothWidget = IconButton(
@@ -107,8 +207,8 @@ class WindowHeaderActions extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 splashRadius: 18,
                 onPressed: () {
-                  syncService!.requestSyncNow();
-                  syncService!.requestTelemetryNow();
+                  syncService?.requestSyncNow();
+                  syncService?.requestTelemetryNow();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -123,51 +223,113 @@ class WindowHeaderActions extends StatelessWidget {
                 },
               );
 
-              // 2. Phone Wi-Fi Strength (Icon Only)
-              final wifiIconData = _getWifiIcon(telem.wifiLevel, telem.isWifiConnected);
-              final isWifiActive = isConnected && telem.isWifiConnected;
+              // 2. Volume Controls Button (After Bluetooth)
+              final isPcMuted = systemService?.pcMuted == true;
+              final pcVol = systemService?.pcVolume ?? 50;
+              final IconData volIcon;
+              if (isPcMuted || pcVol == 0) {
+                volIcon = Icons.volume_off_rounded;
+              } else if (pcVol < 40) {
+                volIcon = Icons.volume_down_rounded;
+              } else {
+                volIcon = Icons.volume_up_rounded;
+              }
+
+              final volumeWidget = IconButton(
+                icon: Icon(
+                  volIcon,
+                  color: isConnected ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                  size: 20,
+                ),
+                tooltip: 'Volume Controls (PC & Mobile)',
+                visualDensity: VisualDensity.compact,
+                splashRadius: 18,
+                onPressed: () {
+                  VolumePopupDialog.show(
+                    context,
+                    syncService: syncService,
+                    systemService: systemService,
+                  );
+                },
+              );
+
+              // 3. Phone Wi-Fi Strength (Consistent Icon, No Gaps)
               final wifiTooltip = isConnected
                   ? (telem.isWifiConnected
                       ? 'Phone Wi-Fi: Connected (${telem.wifiLevel >= 0 ? "${telem.wifiLevel}/4" : "Active"})'
                       : 'Phone Wi-Fi: Disconnected')
                   : 'Phone Wi-Fi: Disconnected';
               final wifiWidget = Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                padding: const EdgeInsets.symmetric(horizontal: 3.0),
                 child: Tooltip(
                   message: wifiTooltip,
-                  child: Icon(
-                    wifiIconData,
-                    size: 19,
-                    color: isWifiActive
-                        ? colorScheme.primary
-                        : colorScheme.outline.withValues(alpha: 0.6),
-                  ),
+                  child: _buildWifiWidget(context, telem.wifiLevel, isConnected && telem.isWifiConnected),
                 ),
               );
 
-              // 3. Phone Cellular Signal Strength (Icon Only)
-              final cellIconData = _getCellularIcon(telem.cellularLevel);
-              final isCellActive = isConnected && telem.cellularLevel >= 0;
+              // 4. Hotspot Icon (Beside Wi-Fi, only visible when on)
+              final Widget? hotspotWidget;
+              if (isConnected && telem.isHotspotOn) {
+                hotspotWidget = Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                  child: Tooltip(
+                    message: 'Mobile Hotspot: Active',
+                    child: Icon(
+                      Icons.wifi_tethering_rounded,
+                      size: 18,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                );
+              } else {
+                hotspotWidget = null;
+              }
+
+              // 5. Phone Cellular Signal Strength (Consistent Triangle, No Line Gaps)
               final cellTooltip = isConnected
                   ? (telem.cellularLevel >= 0
                       ? 'Phone Signal: ${telem.cellularLevel}/4'
                       : 'Phone Signal: No Service')
                   : 'Phone Signal: Disconnected';
               final cellWidget = Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                padding: const EdgeInsets.symmetric(horizontal: 3.0),
                 child: Tooltip(
                   message: cellTooltip,
-                  child: Icon(
-                    cellIconData,
-                    size: 19,
-                    color: isCellActive
-                        ? colorScheme.primary
-                        : colorScheme.outline.withValues(alpha: 0.6),
-                  ),
+                  child: _buildCellularWidget(context, telem.cellularLevel, isConnected),
                 ),
               );
 
-              // 4. Phone Battery (Icon and Percentage)
+              // 6. Network Data Type Badge (4G / 5G / LTE beside SIM icon)
+              final Widget? dataBadge;
+              if (isConnected && telem.dataNetworkType.isNotEmpty) {
+                dataBadge = Padding(
+                  padding: const EdgeInsets.only(right: 3.0),
+                  child: Tooltip(
+                    message: 'Data Network: ${telem.dataNetworkType}',
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 3.5, vertical: 1.0),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(4.0),
+                      ),
+                      child: Text(
+                        telem.dataNetworkType,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                          color: colorScheme.primary,
+                          letterSpacing: 0.2,
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              } else {
+                dataBadge = null;
+              }
+
+              // 7. Phone Battery (Icon and Percentage)
               final batteryIconData = _getBatteryIcon(telem.batteryLevel, telem.isBatteryCharging);
               final batteryText = isConnected && telem.batteryLevel >= 0
                   ? '${telem.batteryLevel}%'
@@ -176,7 +338,7 @@ class WindowHeaderActions extends StatelessWidget {
                   ? 'Phone Battery: ${telem.batteryLevel}%${telem.isBatteryCharging ? " (Charging)" : ""}'
                   : 'Phone Battery: Disconnected';
               final batteryWidget = Padding(
-                padding: const EdgeInsets.only(left: 4.0, right: 8.0),
+                padding: const EdgeInsets.only(left: 3.0, right: 8.0),
                 child: Tooltip(
                   message: batteryTooltip,
                   child: Row(
@@ -211,8 +373,11 @@ class WindowHeaderActions extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   bluetoothWidget,
+                  volumeWidget,
                   wifiWidget,
+                  ?hotspotWidget,
                   cellWidget,
+                  ?dataBadge,
                   batteryWidget,
                 ],
               );
@@ -321,7 +486,7 @@ class _WindowButtonState extends State<_WindowButton> {
   }
 }
 
-class WindowDragArea extends StatelessWidget {
+class WindowDragArea extends StatefulWidget {
   final Widget child;
   final VoidCallback? onStartDrag;
   final VoidCallback? onDoubleTap;
@@ -334,14 +499,29 @@ class WindowDragArea extends StatelessWidget {
   });
 
   @override
+  State<WindowDragArea> createState() => _WindowDragAreaState();
+}
+
+class _WindowDragAreaState extends State<WindowDragArea> {
+  DateTime _lastClickTime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Listener(
       behavior: HitTestBehavior.translucent,
-      onDoubleTap: onDoubleTap,
-      onPanStart: (_) {
-        onStartDrag?.call();
+      onPointerDown: (event) {
+        if (event.buttons == 1) {
+          final now = DateTime.now();
+          if (now.difference(_lastClickTime).inMilliseconds < 300) {
+            _lastClickTime = DateTime.fromMillisecondsSinceEpoch(0);
+            widget.onDoubleTap?.call();
+          } else {
+            _lastClickTime = now;
+            widget.onStartDrag?.call();
+          }
+        }
       },
-      child: child,
+      child: widget.child,
     );
   }
 }

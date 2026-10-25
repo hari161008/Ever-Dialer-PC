@@ -57,8 +57,60 @@ class SystemService extends ChangeNotifier {
     }
   }
 
+  int _pcVolume = 50;
+  bool _pcMuted = false;
+
+  int get pcVolume => _pcVolume;
+  bool get pcMuted => _pcMuted;
+
   SystemService({this.prefs}) {
     _loadSettings();
+    refreshPcVolume();
+  }
+
+  Future<void> refreshPcVolume() async {
+    try {
+      if (Platform.isLinux) {
+        final res = await Process.run('pactl', ['get-sink-volume', '@DEFAULT_SINK@']);
+        if (res.exitCode == 0) {
+          final match = RegExp(r'(\d+)%').firstMatch(res.stdout.toString());
+          if (match != null) {
+            _pcVolume = int.tryParse(match.group(1) ?? '50') ?? _pcVolume;
+          }
+        }
+        final muteRes = await Process.run('pactl', ['get-sink-mute', '@DEFAULT_SINK@']);
+        if (muteRes.exitCode == 0) {
+          _pcMuted = muteRes.stdout.toString().toLowerCase().contains('yes');
+        }
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error refreshing PC volume: $e');
+    }
+  }
+
+  Future<void> setPcVolume(int volume) async {
+    _pcVolume = volume.clamp(0, 100);
+    notifyListeners();
+    try {
+      if (Platform.isLinux) {
+        await Process.run('pactl', ['set-sink-volume', '@DEFAULT_SINK@', '$_pcVolume%']);
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error setting PC volume: $e');
+    }
+  }
+
+  Future<void> togglePcMute() async {
+    _pcMuted = !_pcMuted;
+    notifyListeners();
+    try {
+      if (Platform.isLinux) {
+        await Process.run('pactl', ['set-sink-mute', '@DEFAULT_SINK@', _pcMuted ? '1' : '0']);
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error toggling PC mute: $e');
+    }
   }
 
   void _loadSettings() {

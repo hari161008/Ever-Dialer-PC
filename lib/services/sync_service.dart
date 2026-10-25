@@ -339,6 +339,46 @@ class SyncedCallCategory {
   };
 }
 
+class SyncedContactGroup {
+  final String id;
+  final String name;
+  final List<String> contactIds;
+  final String? accountType;
+  final String? accountName;
+
+  const SyncedContactGroup({
+    required this.id,
+    required this.name,
+    this.contactIds = const [],
+    this.accountType,
+    this.accountName,
+  });
+
+  factory SyncedContactGroup.fromJson(Map<String, dynamic> json) {
+    final ids = <String>[];
+    if (json['contactIds'] is List) {
+      for (final id in json['contactIds'] as List) {
+        ids.add(id.toString());
+      }
+    }
+    return SyncedContactGroup(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      contactIds: ids,
+      accountType: json['accountType']?.toString(),
+      accountName: json['accountName']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'contactIds': contactIds,
+    if (accountType != null) 'accountType': accountType,
+    if (accountName != null) 'accountName': accountName,
+  };
+}
+
 class SyncedSmsThread {
   final String id;
   final String contactName;
@@ -454,12 +494,99 @@ class SyncedNote {
   };
 }
 
+class SyncedVolumeStream {
+  final int current;
+  final int max;
+
+  const SyncedVolumeStream({this.current = 0, this.max = 15});
+
+  factory SyncedVolumeStream.fromJson(dynamic json) {
+    if (json is Map<String, dynamic>) {
+      return SyncedVolumeStream(
+        current: json['current'] is int ? json['current'] as int : 0,
+        max: json['max'] is int ? json['max'] as int : 15,
+      );
+    }
+    return const SyncedVolumeStream();
+  }
+
+  Map<String, dynamic> toJson() => {
+    'current': current,
+    'max': max,
+  };
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is SyncedVolumeStream &&
+        other.current == current &&
+        other.max == max;
+  }
+
+  @override
+  int get hashCode => Object.hash(current, max);
+}
+
+class SyncedPhoneVolume {
+  final SyncedVolumeStream ring;
+  final SyncedVolumeStream notification;
+  final SyncedVolumeStream call;
+  final SyncedVolumeStream alarm;
+  final SyncedVolumeStream media;
+
+  const SyncedPhoneVolume({
+    this.ring = const SyncedVolumeStream(),
+    this.notification = const SyncedVolumeStream(),
+    this.call = const SyncedVolumeStream(),
+    this.alarm = const SyncedVolumeStream(),
+    this.media = const SyncedVolumeStream(),
+  });
+
+  factory SyncedPhoneVolume.fromJson(dynamic json) {
+    if (json is Map<String, dynamic>) {
+      return SyncedPhoneVolume(
+        ring: SyncedVolumeStream.fromJson(json['ring']),
+        notification: SyncedVolumeStream.fromJson(json['notification']),
+        call: SyncedVolumeStream.fromJson(json['call']),
+        alarm: SyncedVolumeStream.fromJson(json['alarm']),
+        media: SyncedVolumeStream.fromJson(json['media']),
+      );
+    }
+    return const SyncedPhoneVolume();
+  }
+
+  Map<String, dynamic> toJson() => {
+    'ring': ring.toJson(),
+    'notification': notification.toJson(),
+    'call': call.toJson(),
+    'alarm': alarm.toJson(),
+    'media': media.toJson(),
+  };
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is SyncedPhoneVolume &&
+        other.ring == ring &&
+        other.notification == notification &&
+        other.call == call &&
+        other.alarm == alarm &&
+        other.media == media;
+  }
+
+  @override
+  int get hashCode => Object.hash(ring, notification, call, alarm, media);
+}
+
 class SyncedTelemetry {
   final int batteryLevel; // 0 to 100, or -1 if unknown
   final bool isBatteryCharging;
   final int wifiLevel; // -1 if disconnected/off, 0 to 4
   final bool isWifiConnected;
   final int cellularLevel; // -1 if unknown/no signal, 0 to 4
+  final bool isHotspotOn;
+  final String dataNetworkType; // "5G", "4G", "LTE", etc. or ""
+  final SyncedPhoneVolume volume;
 
   const SyncedTelemetry({
     this.batteryLevel = -1,
@@ -467,6 +594,9 @@ class SyncedTelemetry {
     this.wifiLevel = -1,
     this.isWifiConnected = false,
     this.cellularLevel = -1,
+    this.isHotspotOn = false,
+    this.dataNetworkType = '',
+    this.volume = const SyncedPhoneVolume(),
   });
 
   factory SyncedTelemetry.fromJson(Map<String, dynamic> json) {
@@ -476,6 +606,9 @@ class SyncedTelemetry {
       wifiLevel: json['wifiLevel'] is int ? json['wifiLevel'] as int : -1,
       isWifiConnected: json['isWifiConnected'] == true,
       cellularLevel: json['cellularLevel'] is int ? json['cellularLevel'] as int : -1,
+      isHotspotOn: json['isHotspotOn'] == true,
+      dataNetworkType: json['dataNetworkType']?.toString() ?? '',
+      volume: SyncedPhoneVolume.fromJson(json['volume']),
     );
   }
 
@@ -485,6 +618,9 @@ class SyncedTelemetry {
     'wifiLevel': wifiLevel,
     'isWifiConnected': isWifiConnected,
     'cellularLevel': cellularLevel,
+    'isHotspotOn': isHotspotOn,
+    'dataNetworkType': dataNetworkType,
+    'volume': volume.toJson(),
   };
 
   @override
@@ -495,7 +631,10 @@ class SyncedTelemetry {
         other.isBatteryCharging == isBatteryCharging &&
         other.wifiLevel == wifiLevel &&
         other.isWifiConnected == isWifiConnected &&
-        other.cellularLevel == cellularLevel;
+        other.cellularLevel == cellularLevel &&
+        other.isHotspotOn == isHotspotOn &&
+        other.dataNetworkType == dataNetworkType &&
+        other.volume == volume;
   }
 
   @override
@@ -505,6 +644,9 @@ class SyncedTelemetry {
         wifiLevel,
         isWifiConnected,
         cellularLevel,
+        isHotspotOn,
+        dataNetworkType,
+        volume,
       );
 }
 
@@ -575,6 +717,8 @@ class PcSyncService extends ChangeNotifier {
   List<SyncedSmsCategory> get smsCategories => List.unmodifiable(_smsCategories);
   List<SyncedCallCategory> _callCategories = [];
   List<SyncedCallCategory> get callCategories => List.unmodifiable(_callCategories);
+  List<SyncedContactGroup> _contactGroups = [];
+  List<SyncedContactGroup> get contactGroups => List.unmodifiable(_contactGroups);
 
   Set<String> _starredSmsMessageIds = {};
   Set<String> _pinnedSmsMessageIds = {};
@@ -704,7 +848,10 @@ class PcSyncService extends ChangeNotifier {
     try {
       final payload = {
         'contacts': _contacts.map((c) => c.toJson()).toList(),
-        'callLogs': _callLogs.map((c) => c.toJson()).toList(),
+        'contactGroups': _contactGroups.map((g) => g.toJson()).toList(),
+        'callLogs': _callLogs.take(50).map((c) => c.toJson()).toList(),
+        'callCategories': _callCategories.map((c) => c.toJson()).toList(),
+        'smsCategories': _smsCategories.map((c) => c.toJson()).toList(),
         'smsThreads': _smsThreads.map((t) => t.toJson()).toList(),
         'notes': _notes.map((n) => n.toJson()).toList(),
         'enabledFeatures': {
@@ -868,13 +1015,27 @@ class PcSyncService extends ChangeNotifier {
       }
     }
 
-    // 2. Call Logs
+    // 1b. Contact Groups
+    if (payload.containsKey('contactGroups')) {
+      final list = payload['contactGroups'];
+      if (list is List) {
+        _contactGroups = list
+            .whereType<Map<String, dynamic>>()
+            .map((item) => SyncedContactGroup.fromJson(item))
+            .toList();
+      } else {
+        _contactGroups = [];
+      }
+    }
+
+    // 2. Call Logs (capped to latest 50)
     if (payload.containsKey('callLogs')) {
       final list = payload['callLogs'];
       if (list is List) {
         _callLogs = list
             .whereType<Map<String, dynamic>>()
             .map((item) => SyncedCallLog.fromJson(item))
+            .take(50)
             .toList();
       } else {
         _callLogs = [];
@@ -1067,6 +1228,14 @@ class PcSyncService extends ChangeNotifier {
 
   void requestTelemetryNow() {
     _sendCommand({'cmd': 'request_telemetry'});
+  }
+
+  void setPhoneVolume(String stream, int level) {
+    _sendCommand({
+      'cmd': 'set_volume',
+      'stream': stream,
+      'level': level,
+    });
   }
 
   void addNote(String title, String content) {

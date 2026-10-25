@@ -29,6 +29,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   // Contacts tab state
   String _contactSearchQuery = '';
   SyncedContact? _selectedContactForDetails;
+  String? _selectedContactGroupId; // null = All, '__ungrouped__' = Ungrouped, or group ID
 
   // SMS tab state
   String _selectedSmsCategory = 'all'; // all, favourites, starred, contacts, unknown, otp
@@ -1663,22 +1664,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   color: colorScheme.onSurface,
                 ),
               ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  '${filteredLogs.length} calls',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.onPrimaryContainer,
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -2021,9 +2006,25 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
 
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final contactGroups = widget.syncService.contactGroups;
     final allContacts = widget.syncService.contacts;
 
-    final filtered = allContacts.where((c) {
+    // Filter contacts by group
+    final groupFilteredContacts = allContacts.where((c) {
+      if (_selectedContactGroupId == null) return true;
+      if (_selectedContactGroupId == '__ungrouped__') {
+        final allGroupedIds = contactGroups.expand((g) => g.contactIds).toSet();
+        return !allGroupedIds.contains(c.id);
+      }
+      final grp = contactGroups.cast<SyncedContactGroup?>().firstWhere(
+        (g) => g?.id == _selectedContactGroupId,
+        orElse: () => null,
+      );
+      if (grp == null) return true;
+      return grp.contactIds.contains(c.id);
+    }).toList();
+
+    final filtered = groupFilteredContacts.where((c) {
       if (_contactSearchQuery.isEmpty) return true;
       final q = _contactSearchQuery.toLowerCase();
       return c.name.toLowerCase().contains(q) ||
@@ -2031,6 +2032,54 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     }).toList();
 
     final groupedContacts = _groupContactsByLetter(filtered);
+
+    final String contactsCountText;
+    if (_selectedContactGroupId != null) {
+      if (_selectedContactGroupId == '__ungrouped__') {
+        contactsCountText = 'Ungrouped · ${filtered.length}';
+      } else {
+        final grp = contactGroups.cast<SyncedContactGroup?>().firstWhere(
+          (g) => g?.id == _selectedContactGroupId,
+          orElse: () => null,
+        );
+        contactsCountText = '${grp?.name ?? "Group"} · ${filtered.length}';
+      }
+    } else {
+      contactsCountText = '${allContacts.length} contacts';
+    }
+
+    final searchTextField = TextField(
+      decoration: InputDecoration(
+        hintText: 'Search contacts...',
+        prefixIcon: const Icon(Icons.search, size: 20),
+        suffixIcon: _contactSearchQuery.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                onPressed: () {
+                  setState(() {
+                    _contactSearchQuery = '';
+                  });
+                },
+              )
+            : null,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 10,
+        ),
+        filled: true,
+        fillColor: colorScheme.surfaceContainer,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+      ),
+      onChanged: (val) {
+        setState(() {
+          _contactSearchQuery = val;
+        });
+      },
+    );
 
     return Padding(
       padding: const EdgeInsets.all(20.0),
@@ -2054,7 +2103,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
-                  '${allContacts.length} contacts',
+                  contactsCountText,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -2066,37 +2115,86 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           ),
           const SizedBox(height: 12),
 
-          TextField(
-            decoration: InputDecoration(
-              hintText: 'Search contacts...',
-              prefixIcon: const Icon(Icons.search, size: 20),
-              suffixIcon: _contactSearchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        setState(() {
-                          _contactSearchQuery = '';
-                        });
-                      },
-                    )
-                  : null,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 10,
-              ),
-              filled: true,
-              fillColor: colorScheme.surfaceContainer,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-            ),
-            onChanged: (val) {
-              setState(() {
-                _contactSearchQuery = val;
-              });
-            },
+          // Search and Groups Filter
+          Row(
+            children: [
+              if (contactGroups.isNotEmpty)
+                SizedBox(
+                  width: 250,
+                  child: searchTextField,
+                )
+              else
+                Expanded(
+                  child: searchTextField,
+                ),
+              if (contactGroups.isNotEmpty) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        // "All" chip
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6.0),
+                          child: FilterChip(
+                            avatar: const Icon(Icons.people_outline_rounded, size: 16),
+                            label: const Text('All'),
+                            selected: _selectedContactGroupId == null,
+                            onSelected: (_) {
+                              setState(() {
+                                _selectedContactGroupId = null;
+                              });
+                            },
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                        ),
+                        // Groups chips
+                        ...contactGroups.map((grp) {
+                          final isSelected = _selectedContactGroupId == grp.id;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 6.0),
+                            child: FilterChip(
+                              avatar: const Icon(Icons.group_outlined, size: 16),
+                              label: Text(grp.name),
+                              selected: isSelected,
+                              onSelected: (_) {
+                                setState(() {
+                                  _selectedContactGroupId = isSelected ? null : grp.id;
+                                });
+                              },
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                          );
+                        }),
+                        // "Ungrouped" chip
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6.0),
+                          child: FilterChip(
+                            avatar: const Icon(Icons.person_outline_rounded, size: 16),
+                            label: const Text('Ungrouped'),
+                            selected: _selectedContactGroupId == '__ungrouped__',
+                            onSelected: (_) {
+                              setState(() {
+                                _selectedContactGroupId =
+                                    _selectedContactGroupId == '__ungrouped__' ? null : '__ungrouped__';
+                              });
+                            },
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 16),
 
@@ -2111,7 +2209,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     Text(
                       _contactSearchQuery.isNotEmpty
                           ? 'No contacts match "$_contactSearchQuery"'
-                          : 'No contacts synced yet.',
+                          : (_selectedContactGroupId != null
+                              ? 'No contacts in this group'
+                              : 'No contacts synced yet.'),
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: colorScheme.outline,
                       ),
@@ -2307,6 +2407,11 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       final phoneMatch = contactPhones.any((p) => n.content.contains(p) || n.title.contains(p));
       return titleMatch || phoneMatch;
     }).toList();
+
+    // Matching groups
+    final memberGroups = widget.syncService.contactGroups
+        .where((g) => g.contactIds.contains(contact.id))
+        .toList();
 
     return Column(
       children: [
@@ -2576,6 +2681,31 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         ),
                       ),
                       const SizedBox(height: 16),
+
+                      // Groups Card
+                      if (memberGroups.isNotEmpty) ...[
+                        _buildInfoSectionCard(
+                          title: 'Groups',
+                          icon: Icons.group_outlined,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: memberGroups.map((g) {
+                                return Chip(
+                                  avatar: Icon(Icons.people_alt_outlined, size: 16, color: colorScheme.primary),
+                                  label: Text(g.name, style: TextStyle(fontSize: 13, color: colorScheme.onSurface)),
+                                  backgroundColor: colorScheme.surfaceContainerHigh,
+                                  side: BorderSide.none,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
 
                       // 4. Notes Card
                       if ((contact.note != null && contact.note!.trim().isNotEmpty) || matchingNotes.isNotEmpty) ...[

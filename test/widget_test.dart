@@ -596,6 +596,8 @@ void main() {
         'wifiLevel': 3,
         'isWifiConnected': true,
         'cellularLevel': 4,
+        'isHotspotOn': true,
+        'dataNetworkType': '5G',
       },
     });
     await tester.pumpAndSettle();
@@ -603,8 +605,11 @@ void main() {
     // Verify telemetry indicators
     expect(find.text('85%'), findsOneWidget);
     expect(find.byIcon(Icons.battery_6_bar_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.network_wifi_3_bar_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.signal_cellular_4_bar_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.wifi_rounded), findsWidgets);
+    expect(find.byIcon(Icons.wifi_tethering_rounded), findsOneWidget); // Hotspot icon
+    expect(find.byIcon(Icons.signal_cellular_4_bar_rounded), findsWidgets);
+    expect(find.text('5G'), findsOneWidget); // Data network badge
+    expect(find.byIcon(Icons.volume_up_rounded), findsOneWidget); // Volume icon
 
     mockService.dispose();
     mockSyncService.dispose();
@@ -867,6 +872,155 @@ void main() {
 
     // Dialog is dismissed
     expect(find.text('Confirm placing call'), findsNothing);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Call logs header does not display "-calls" pill badge and caps sync to 50 call logs', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    // Create 60 call logs
+    final logsJson = List.generate(60, (index) => {
+      'id': 'log_$index',
+      'name': 'Contact $index',
+      'number': '+1555${1000 + index}',
+      'type': 'incoming',
+      'timestamp': DateTime.now().millisecondsSinceEpoch - index * 60000,
+      'duration': 10,
+      'simSlot': 1,
+      'count': 1,
+    });
+
+    mockSyncService.updateFromPayload({
+      'callLogs': logsJson,
+    });
+
+    // Verify capped to 50
+    expect(mockSyncService.callLogs.length, 50);
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pump();
+
+    // Switch to Calls tab
+    await tester.tap(find.text('Calls'));
+    await tester.pumpAndSettle();
+
+    // Header says 'Call Logs' but does NOT display the '-calls' pill badge
+    expect(find.text('Call Logs'), findsOneWidget);
+    expect(find.textContaining('calls'), findsNothing);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Contacts tab displays contact groups filter chips, filters contacts by group, and updates badge text', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    mockSyncService.updateFromPayload({
+      'contacts': [
+        {'id': 'c_1', 'name': 'Alice Smith', 'phone': '+15550001'},
+        {'id': 'c_2', 'name': 'Bob Jones', 'phone': '+15550002'},
+        {'id': 'c_3', 'name': 'Charlie Brown', 'phone': '+15550003'},
+      ],
+      'contactGroups': [
+        {
+          'id': 'grp_friends',
+          'name': 'Friends',
+          'contactIds': ['c_1'],
+        },
+        {
+          'id': 'grp_work',
+          'name': 'Work',
+          'contactIds': ['c_2'],
+        },
+      ],
+    });
+
+    expect(mockSyncService.contactGroups.length, 2);
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pump();
+
+    // Switch to Contacts tab
+    await tester.tap(find.text('Contacts'));
+    await tester.pumpAndSettle();
+
+    // Verify chips are present
+    expect(find.text('All'), findsOneWidget);
+    expect(find.text('Friends'), findsOneWidget);
+    expect(find.text('Work'), findsOneWidget);
+    expect(find.text('Ungrouped'), findsOneWidget);
+
+    // Initial state: All contacts shown
+    expect(find.text('3 contacts'), findsOneWidget);
+    expect(find.text('Alice Smith'), findsOneWidget);
+    expect(find.text('Bob Jones'), findsOneWidget);
+    expect(find.text('Charlie Brown'), findsOneWidget);
+
+    // Select Friends group
+    await tester.tap(find.text('Friends'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Friends · 1'), findsOneWidget);
+    expect(find.text('Alice Smith'), findsOneWidget);
+    expect(find.text('Bob Jones'), findsNothing);
+    expect(find.text('Charlie Brown'), findsNothing);
+
+    // Select Ungrouped
+    await tester.tap(find.text('Ungrouped'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ungrouped · 1'), findsOneWidget);
+    expect(find.text('Charlie Brown'), findsOneWidget);
+    expect(find.text('Alice Smith'), findsNothing);
+    expect(find.text('Bob Jones'), findsNothing);
+
+    // Select All
+    await tester.tap(find.text('All'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('3 contacts'), findsOneWidget);
+    expect(find.text('Alice Smith'), findsOneWidget);
+    expect(find.text('Bob Jones'), findsOneWidget);
+    expect(find.text('Charlie Brown'), findsOneWidget);
 
     mockService.dispose();
     mockSyncService.dispose();
