@@ -199,7 +199,13 @@ class _EverDialerAppState extends State<EverDialerApp> {
                 colorScheme: lightColorScheme,
                 scaffoldBackgroundColor: isWhiteMode ? const Color(0xFFFFFFFF) : lightColorScheme.surface,
                 iconTheme: IconThemeData(
+                  color: lightColorScheme.onSurface,
                   size: (22 * displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
+                ),
+                iconButtonTheme: IconButtonThemeData(
+                  style: IconButton.styleFrom(
+                    foregroundColor: lightColorScheme.onSurface,
+                  ),
                 ),
                 visualDensity: VisualDensity(
                   horizontal: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
@@ -212,7 +218,13 @@ class _EverDialerAppState extends State<EverDialerApp> {
                 colorScheme: darkColorScheme,
                 scaffoldBackgroundColor: isBlackMode ? const Color(0xFF000000) : darkColorScheme.surface,
                 iconTheme: IconThemeData(
+                  color: darkColorScheme.onSurface,
                   size: (22 * displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
+                ),
+                iconButtonTheme: IconButtonThemeData(
+                  style: IconButton.styleFrom(
+                    foregroundColor: darkColorScheme.onSurface,
+                  ),
                 ),
                 visualDensity: VisualDensity(
                   horizontal: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),

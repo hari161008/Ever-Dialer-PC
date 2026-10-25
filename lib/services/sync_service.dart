@@ -707,6 +707,15 @@ class PcSyncService extends ChangeNotifier {
   Color _sim2Color = const Color(0xFFC62828);
   Color get sim2Color => _sim2Color;
 
+  bool _favoritesInList = false;
+  bool get favoritesInList => _favoritesInList;
+
+  void setFavoritesInList(bool value) {
+    _favoritesInList = value;
+    _prefs?.setBool('favorites_in_list', value);
+    notifyListeners();
+  }
+
   List<SyncedContact> get contacts => List.unmodifiable(_contacts);
   List<SyncedContact> get favourites =>
       List.unmodifiable(_contacts.where((c) => c.isFavorite));
@@ -803,6 +812,7 @@ class PcSyncService extends ChangeNotifier {
     _prefs = prefs;
     if (_prefs != null) {
       _pcSyncEnabled = _prefs!.getBool(_prefPcSyncEnabledKey) ?? false;
+      _favoritesInList = _prefs!.getBool('favorites_in_list') ?? false;
       final savedThemeColor = _prefs!.getInt('last_synced_theme_color');
       if (savedThemeColor != null) {
         _phoneThemeColor = Color(savedThemeColor);
@@ -813,6 +823,7 @@ class PcSyncService extends ChangeNotifier {
 
   Future<void> _init() async {
     _prefs ??= await SharedPreferences.getInstance();
+    _favoritesInList = _prefs?.getBool('favorites_in_list') ?? _favoritesInList;
     final saved = _prefs?.getBool(_prefPcSyncEnabledKey) ?? false;
     if (saved != _pcSyncEnabled) {
       _pcSyncEnabled = saved;
@@ -873,6 +884,7 @@ class PcSyncService extends ChangeNotifier {
           'confirmPlacingCall': _confirmPlacingCall,
         },
         'confirmPlacingCall': _confirmPlacingCall,
+        'favoritesInList': _favoritesInList,
         'lastSyncTime': _lastSyncTime?.millisecondsSinceEpoch,
         'deviceName': _connectedDeviceName,
       };
@@ -1142,6 +1154,13 @@ class PcSyncService extends ChangeNotifier {
     }
     if (payload.containsKey('confirmPlacingCall')) {
       _confirmPlacingCall = payload['confirmPlacingCall'] == true;
+    }
+    if (payload.containsKey('favoritesInList')) {
+      _favoritesInList = payload['favoritesInList'] == true;
+      _prefs?.setBool('favorites_in_list', _favoritesInList);
+    } else if (payload.containsKey('favorites_in_list')) {
+      _favoritesInList = payload['favorites_in_list'] == true;
+      _prefs?.setBool('favorites_in_list', _favoritesInList);
     }
 
     if (payload.containsKey('themeColor')) {

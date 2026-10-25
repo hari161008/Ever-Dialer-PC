@@ -12,6 +12,7 @@ import 'package:ever_dialer_pc/services/system_service.dart';
 import 'package:ever_dialer_pc/services/appearance_preferences.dart';
 import 'package:ever_dialer_pc/screens/system_audio_screen.dart';
 import 'package:ever_dialer_pc/screens/settings_screen.dart';
+import 'package:ever_dialer_pc/widgets/smooth_contact_avatar.dart';
 
 void main() {
   testWidgets('EverDialerApp shows dashboard and opens Settings screen with unified Bluetooth Connection & Sync container', (WidgetTester tester) async {
@@ -1278,6 +1279,297 @@ void main() {
     expect(tester.takeException(), isNull);
 
     mockService.dispose();
+  });
+
+  testWidgets('Call logs and Contacts filter chips have showCheckmark set to false', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    // Populate contacts and call logs
+    mockSyncService.updateFromPayload({
+      'callLogs': [
+        {
+          'number': '+1234567890',
+          'name': 'Bob',
+          'type': 1,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'duration': 60,
+        }
+      ],
+      'contacts': [
+        {
+          'id': 'c1',
+          'name': 'Bob',
+          'phone': '+1234567890',
+        }
+      ],
+      'contactGroups': [
+        {
+          'id': 'g1',
+          'name': 'Work',
+          'contactIds': ['c1'],
+        }
+      ],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // 1. Verify Call Logs filter chips have showCheckmark == false
+    await tester.tap(find.text('Calls'));
+    await tester.pumpAndSettle();
+
+    final callChips = tester.widgetList<FilterChip>(find.byType(FilterChip)).toList();
+    expect(callChips, isNotEmpty);
+    for (final chip in callChips) {
+      expect(chip.showCheckmark, isFalse, reason: 'Call logs FilterChip must not have checkmark');
+    }
+
+    // 2. Verify Contacts filter chips have showCheckmark == false
+    await tester.tap(find.text('Contacts'));
+    await tester.pumpAndSettle();
+
+    final contactChips = tester.widgetList<FilterChip>(find.byType(FilterChip)).toList();
+    expect(contactChips, isNotEmpty);
+    for (final chip in contactChips) {
+      expect(chip.showCheckmark, isFalse, reason: 'Contacts FilterChip must not have checkmark');
+    }
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Top icons in Contact Info and SMS section have visible theme colors in dark mode', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'theme_mode': 'dark',
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    mockSyncService.updateFromPayload({
+      'contacts': [
+        {
+          'id': 'c1',
+          'name': 'Alice Wonder',
+          'phone': '+1987654321',
+        }
+      ],
+      'smsThreads': [
+        {
+          'id': 'thread_1',
+          'contactName': 'Alice Wonder',
+          'phone': '+1987654321',
+          'snippet': 'Hi!',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'unreadCount': 0,
+          'messages': [
+            {
+              'id': 'msg_1',
+              'body': 'Hi!',
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+              'isOutgoing': false,
+            }
+          ],
+        }
+      ],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // 1. Check SMS section top New Message icon in dark mode
+    await tester.tap(find.text('SMS'));
+    await tester.pumpAndSettle();
+
+    final newMsgIconFinder = find.byIcon(Icons.add_comment_rounded);
+    expect(newMsgIconFinder, findsOneWidget);
+    final newMsgIcon = tester.widget<Icon>(newMsgIconFinder);
+    expect(newMsgIcon.color, isNotNull);
+    expect(newMsgIcon.color, isNot(equals(const Color(0xFF000000))));
+
+    // 2. Check Contact Info top icons in dark mode
+    await tester.tap(find.text('Contacts').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Alice Wonder'));
+    await tester.pumpAndSettle();
+
+    final backIconFinder = find.byIcon(Icons.arrow_back);
+    expect(backIconFinder, findsOneWidget);
+    final backIcon = tester.widget<Icon>(backIconFinder);
+    expect(backIcon.color, isNotNull);
+    expect(backIcon.color, isNot(equals(const Color(0xFF000000))));
+
+    final shareIconFinder = find.byIcon(Icons.share_outlined);
+    expect(shareIconFinder, findsOneWidget);
+    final shareIcon = tester.widget<Icon>(shareIconFinder);
+    expect(shareIcon.color, isNotNull);
+    expect(shareIcon.color, isNot(equals(const Color(0xFF000000))));
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Contact tile displays only phone number without account info, and Contact Info page displays bigger pfp, description, and notes', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    mockSyncService.updateFromPayload({
+      'contacts': [
+        {
+          'id': 'c101',
+          'name': 'Charlie Chaplin',
+          'phone': '+123456789',
+          'account': 'Google: charlie@gmail.com',
+          'note': 'Great comedian and director',
+          'isFavorite': true,
+        }
+      ],
+      'notes': [
+        {
+          'id': 'n1',
+          'title': 'Charlie Chaplin',
+          'content': 'Meeting tomorrow at 10 AM',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        }
+      ],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Switch to Contacts tab
+    await tester.tap(find.text('Contacts'));
+    await tester.pumpAndSettle();
+
+    // 1. Verify subtitle shows '+123456789' and does NOT show 'Google: charlie@gmail.com' or '•'
+    expect(find.text('+123456789'), findsOneWidget);
+    expect(find.textContaining('Google: charlie@gmail.com'), findsNothing);
+    expect(find.textContaining('•'), findsNothing);
+
+    // 2. Open Contact Info page
+    await tester.tap(find.text('Charlie Chaplin'));
+    await tester.pumpAndSettle();
+
+    // Verify bigger avatar: finder for SmoothContactAvatar with radius == 80
+    final avatarFinder = find.byWidgetPredicate(
+      (w) => w is SmoothContactAvatar && w.radius == 80,
+    );
+    expect(avatarFinder, findsOneWidget);
+
+    // Verify Description (Synced Notes) card exists and shows contact.note
+    expect(find.text('Description (Synced Notes)'), findsOneWidget);
+    expect(find.text('Great comedian and director'), findsOneWidget);
+
+    // Verify Notes (Phone Only) card exists and shows matching note & 'Add note' button
+    expect(find.text('Notes (1)'), findsOneWidget);
+    expect(find.text('Meeting tomorrow at 10 AM'), findsOneWidget);
+    expect(find.text('Add note'), findsOneWidget);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Favourites view syncs list mode from mobile and supports toggling between grid and list', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'favorites_in_list': false,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    mockSyncService.updateFromPayload({
+      'contacts': [
+        {
+          'id': 'fav1',
+          'name': 'Daisy Bell',
+          'phone': '+15551122',
+          'isFavorite': true,
+        }
+      ],
+      'favoritesInList': false,
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Switch to Favourites tab (which is default tab index 0)
+    expect(find.text('Favourites'), findsNWidgets(2));
+    expect(find.text('1 contacts'), findsOneWidget);
+
+    // Grid mode: GridView is rendered with contact name
+    expect(find.byType(GridView), findsOneWidget);
+    expect(find.byType(ListView), findsNothing);
+    expect(find.text('Daisy Bell'), findsOneWidget);
+
+    // Toggle to list view via top bar button
+    final toggleButton = find.byTooltip('Switch to list view');
+    expect(toggleButton, findsOneWidget);
+    await tester.tap(toggleButton);
+    await tester.pumpAndSettle();
+
+    // List mode: ListView is now rendered
+    expect(find.byType(ListView), findsOneWidget);
+    expect(mockSyncService.favoritesInList, isTrue);
+
+    // Simulating incoming sync payload with favoritesInList: false updates UI back to grid
+    mockSyncService.updateFromPayload({
+      'favoritesInList': false,
+    });
+    await tester.pumpAndSettle();
+
+    expect(mockSyncService.favoritesInList, isFalse);
+    expect(find.byType(GridView), findsOneWidget);
+
+    mockService.dispose();
+    mockSyncService.dispose();
   });
 }
 

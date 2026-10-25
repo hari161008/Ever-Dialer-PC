@@ -48,8 +48,12 @@ cd "$PROJECT_DIR"
 # -------------------------------------------------------------------
 LOCAL_BIN="${HOME}/.local/bin"
 mkdir -p "$LOCAL_BIN"
-CURRENT_SCRIPT="${PROJECT_DIR}/scripts/build_release.sh"
+CURRENT_SCRIPT="${PROJECT_DIR}/scripts/app_release.sh"
 
+if [ ! -L "${LOCAL_BIN}/app_release" ] || [ "$(readlink -f "${LOCAL_BIN}/app_release")" != "$CURRENT_SCRIPT" ]; then
+    ln -sf "$CURRENT_SCRIPT" "${LOCAL_BIN}/app_release"
+    chmod +x "${LOCAL_BIN}/app_release"
+fi
 if [ ! -L "${LOCAL_BIN}/build_release" ] || [ "$(readlink -f "${LOCAL_BIN}/build_release")" != "$CURRENT_SCRIPT" ]; then
     ln -sf "$CURRENT_SCRIPT" "${LOCAL_BIN}/build_release"
     chmod +x "${LOCAL_BIN}/build_release"

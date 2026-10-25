@@ -1451,6 +1451,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final favourites = widget.syncService.favourites;
+    final isListView = widget.syncService.favoritesInList;
 
     return Padding(
       padding: const EdgeInsets.all(20.0),
@@ -1458,28 +1459,52 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Favourites',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurface,
+              Expanded(
+                child: Text(
+                  'Favourites',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSurface,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '${favourites.length} contacts',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: colorScheme.onPrimaryContainer,
-                    fontWeight: FontWeight.bold,
+              const SizedBox(width: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${favourites.length} contacts',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(
+                      isListView
+                          ? Icons.grid_view_rounded
+                          : Icons.view_list_rounded,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    tooltip: isListView
+                        ? 'Switch to grid view'
+                        : 'Switch to list view',
+                    onPressed: () {
+                      widget.syncService.setFavoritesInList(!isListView);
+                    },
+                  ),
+                ],
               ),
             ],
           ),
@@ -1487,22 +1512,130 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           if (favourites.isEmpty)
             Expanded(
               child: Center(
-                child: Text(
-                  'No favourites synced from Ever Dialer mobile yet.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.outline,
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.star_outline_rounded,
+                      size: 48,
+                      color: colorScheme.outline.withValues(alpha: 0.6),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Star a contact to add them here',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.outline,
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+            )
+          else if (isListView)
+            Expanded(
+              child: ListView.separated(
+                itemCount: favourites.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final contact = favourites[index];
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onSecondaryTapDown: (details) => _showFavouriteContextMenu(context, details.globalPosition, contact),
+                    onLongPressStart: (details) => _showFavouriteContextMenu(context, details.globalPosition, contact),
+                    child: Card(
+                      elevation: 0,
+                      color: colorScheme.surfaceContainerLow,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () {
+                          _initiateCall(
+                            contact.phone,
+                            displayName: contact.name,
+                            photoBase64: contact.photoBase64,
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                          child: Row(
+                            children: [
+                              SmoothContactAvatar(
+                                radius: 24,
+                                photoBase64: contact.photoBase64,
+                                initials: contact.initials,
+                                backgroundColor: colorScheme.primaryContainer,
+                                foregroundColor: colorScheme.onPrimaryContainer,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      contact.name,
+                                      style: theme.textTheme.bodyLarge?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: colorScheme.onSurface,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (contact.phone.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        contact.phone,
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: colorScheme.onSurfaceVariant,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: colorScheme.primaryContainer.withValues(alpha: 0.85),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  icon: const Icon(Icons.call, size: 18),
+                                  color: colorScheme.onPrimaryContainer,
+                                  tooltip: 'Call ${contact.name}',
+                                  padding: EdgeInsets.zero,
+                                  onPressed: () {
+                                    _initiateCall(
+                                      contact.phone,
+                                      displayName: contact.name,
+                                      photoBase64: contact.photoBase64,
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             )
           else
             Expanded(
               child: GridView.builder(
                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 220,
-                  mainAxisSpacing: 14,
-                  crossAxisSpacing: 14,
-                  childAspectRatio: 1.1,
+                  maxCrossAxisExtent: 140,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 0.82,
                 ),
                 itemCount: favourites.length,
                 itemBuilder: (context, index) {
@@ -1513,60 +1646,74 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     onLongPressStart: (details) => _showFavouriteContextMenu(context, details.globalPosition, contact),
                     child: Card(
                       elevation: 0,
-                      color: colorScheme.surfaceContainer,
+                      color: colorScheme.surfaceContainerLow,
+                      clipBehavior: Clip.antiAlias,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12.0),
+                      child: InkWell(
+                        onTap: () {
+                          _initiateCall(
+                            contact.phone,
+                            displayName: contact.name,
+                            photoBase64: contact.photoBase64,
+                          );
+                        },
                         child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            SmoothContactAvatar(
-                              radius: 22,
-                              photoBase64: contact.photoBase64,
-                              initials: contact.initials,
-                              backgroundColor: colorScheme.primaryContainer,
-                              foregroundColor: colorScheme.onPrimaryContainer,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              contact.name,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
+                            AspectRatio(
+                              aspectRatio: 1.0,
+                              child: Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                                    child: SizedBox.expand(
+                                      child: SmoothContactAvatar(
+                                        radius: 60,
+                                        photoBase64: contact.photoBase64,
+                                        initials: contact.initials,
+                                        backgroundColor: colorScheme.primaryContainer,
+                                        foregroundColor: colorScheme.onPrimaryContainer,
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    bottom: 6,
+                                    right: 6,
+                                    child: Container(
+                                      width: 24,
+                                      height: 24,
+                                      decoration: BoxDecoration(
+                                        color: colorScheme.primaryContainer.withValues(alpha: 0.85),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        Icons.call,
+                                        size: 12,
+                                        color: colorScheme.onPrimaryContainer,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                             ),
-                            Text(
-                              contact.phone,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
+                            Expanded(
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                                  child: Text(
+                                    contact.name,
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.call, size: 18),
-                                  color: colorScheme.primary,
-                                  tooltip: 'Call ${contact.name}',
-                                  onPressed: () {
-                                    _initiateCall(contact.phone, displayName: contact.name, photoBase64: contact.photoBase64);
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                                  color: colorScheme.primary,
-                                  tooltip: 'SMS ${contact.name}',
-                                  onPressed: () {
-                                    _openSmsForNumber(contact.phone);
-                                  },
-                                ),
-                              ],
                             ),
                           ],
                         ),
@@ -1676,10 +1823,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 child: TextField(
                   decoration: InputDecoration(
                     hintText: 'Search call logs...',
-                    prefixIcon: const Icon(Icons.search, size: 20),
+                    prefixIcon: Icon(Icons.search, size: 20, color: colorScheme.onSurfaceVariant),
                     suffixIcon: _callSearchQuery.isNotEmpty
                         ? IconButton(
-                            icon: const Icon(Icons.clear, size: 18),
+                            icon: Icon(Icons.clear, size: 18, color: colorScheme.onSurfaceVariant),
                             onPressed: () {
                               setState(() {
                                 _callSearchQuery = '';
@@ -1726,6 +1873,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       return Padding(
                         padding: const EdgeInsets.only(right: 6.0),
                         child: FilterChip(
+                          showCheckmark: false,
                           label: Text(f),
                           selected: isSelected,
                           onSelected: (_) {
@@ -2051,10 +2199,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     final searchTextField = TextField(
       decoration: InputDecoration(
         hintText: 'Search contacts...',
-        prefixIcon: const Icon(Icons.search, size: 20),
+        prefixIcon: Icon(Icons.search, size: 20, color: colorScheme.onSurfaceVariant),
         suffixIcon: _contactSearchQuery.isNotEmpty
             ? IconButton(
-                icon: const Icon(Icons.clear, size: 18),
+                icon: Icon(Icons.clear, size: 18, color: colorScheme.onSurfaceVariant),
                 onPressed: () {
                   setState(() {
                     _contactSearchQuery = '';
@@ -2138,6 +2286,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         Padding(
                           padding: const EdgeInsets.only(right: 6.0),
                           child: FilterChip(
+                            showCheckmark: false,
                             avatar: const Icon(Icons.people_outline_rounded, size: 16),
                             label: const Text('All'),
                             selected: _selectedContactGroupId == null,
@@ -2157,6 +2306,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           return Padding(
                             padding: const EdgeInsets.only(right: 6.0),
                             child: FilterChip(
+                              showCheckmark: false,
                               avatar: const Icon(Icons.group_outlined, size: 16),
                               label: Text(grp.name),
                               selected: isSelected,
@@ -2175,6 +2325,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         Padding(
                           padding: const EdgeInsets.only(right: 6.0),
                           child: FilterChip(
+                            showCheckmark: false,
                             avatar: const Icon(Icons.person_outline_rounded, size: 16),
                             label: const Text('Ungrouped'),
                             selected: _selectedContactGroupId == '__ungrouped__',
@@ -2324,9 +2475,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 2.0),
           child: Text(
-            contact.account != null && contact.account!.isNotEmpty
-                ? '${contact.phone} • ${contact.account}'
-                : contact.phone,
+            contact.phone,
             style: theme.textTheme.bodySmall?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
@@ -2421,7 +2570,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back, color: colorScheme.onSurface),
                 tooltip: 'Back to contacts',
                 onPressed: () {
                   setState(() {
@@ -2449,7 +2598,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 },
               ),
               IconButton(
-                icon: const Icon(Icons.share_outlined),
+                icon: Icon(Icons.share_outlined, color: colorScheme.onSurfaceVariant),
                 tooltip: 'Copy details',
                 onPressed: () {
                   final details = '${contact.name}\n${contact.phone}';
@@ -2481,8 +2630,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   alignment: Alignment.center,
                   children: [
                     Container(
-                      width: 130,
-                      height: 130,
+                      width: 200,
+                      height: 200,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: RadialGradient(
@@ -2494,7 +2643,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       ),
                     ),
                     SmoothContactAvatar(
-                      radius: 52,
+                      radius: 80,
                       photoBase64: contact.photoBase64,
                       initials: contact.initials,
                       backgroundColor: colorScheme.primaryContainer,
@@ -2707,49 +2856,134 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         const SizedBox(height: 16),
                       ],
 
-                      // 4. Notes Card
-                      if ((contact.note != null && contact.note!.trim().isNotEmpty) || matchingNotes.isNotEmpty) ...[
-                        _buildInfoSectionCard(
-                          title: 'Notes',
-                          icon: Icons.note_alt_outlined,
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (contact.note != null && contact.note!.trim().isNotEmpty) ...[
-                                  Text(
-                                    contact.note!.trim(),
+                      // 4. Description (Synced Notes) Card
+                      _buildInfoSectionCard(
+                        title: 'Description (Synced Notes)',
+                        icon: Icons.description_outlined,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: (contact.note != null && contact.note!.trim().isNotEmpty)
+                              ? Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: SelectableText(
+                                        contact.note!.trim(),
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: colorScheme.onSurface,
+                                          height: 1.45,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      icon: const Icon(Icons.copy, size: 18),
+                                      color: colorScheme.onSurfaceVariant,
+                                      tooltip: 'Copy description',
+                                      onPressed: () {
+                                        Clipboard.setData(ClipboardData(text: contact.note!.trim()));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Description copied to clipboard'),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                )
+                              : Text(
+                                  'No synced description for this contact.',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.outline,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // 5. Notes (Phone Only) Card
+                      _buildInfoSectionCard(
+                        title: matchingNotes.isNotEmpty
+                            ? 'Notes (${matchingNotes.length})'
+                            : 'Notes',
+                        icon: Icons.note_alt_outlined,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (matchingNotes.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12.0),
+                                  child: Text(
+                                    'No notes yet for this contact.',
                                     style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: colorScheme.onSurface,
-                                      height: 1.4,
+                                      color: colorScheme.outline,
                                     ),
                                   ),
-                                  if (matchingNotes.isNotEmpty) const Divider(height: 20),
+                                )
+                              else
+                                for (int i = 0; i < matchingNotes.length; i++) ...[
+                                  if (i > 0) const Divider(height: 20),
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              matchingNotes[i].title,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: colorScheme.primary,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            SelectableText(
+                                              matchingNotes[i].content,
+                                              style: TextStyle(
+                                                fontSize: 13.5,
+                                                color: colorScheme.onSurface,
+                                                height: 1.4,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _formatCallDateHeader(matchingNotes[i].timestamp),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: colorScheme.outline,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.edit_outlined, size: 18),
+                                        color: colorScheme.onSurfaceVariant,
+                                        tooltip: 'Edit note',
+                                        onPressed: () => _showEditNoteDialog(matchingNotes[i]),
+                                      ),
+                                    ],
+                                  ),
                                 ],
-                                for (final n in matchingNotes) ...[
-                                  Text(
-                                    n.title,
-                                    style: TextStyle(fontWeight: FontWeight.bold, color: colorScheme.primary, fontSize: 13),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    n.content,
-                                    style: TextStyle(fontSize: 13.5, color: colorScheme.onSurface),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _formatCallDateHeader(n.timestamp),
-                                    style: TextStyle(fontSize: 11, color: colorScheme.outline),
-                                  ),
-                                  const SizedBox(height: 8),
-                                ],
-                              ],
-                            ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton.icon(
+                                  icon: const Icon(Icons.add, size: 18),
+                                  label: const Text('Add note'),
+                                  onPressed: () => _showAddNoteDialog(initialTitle: contact.name),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 16),
-                      ],
+                      ),
+                      const SizedBox(height: 16),
 
                       // 5. Recent Activity Card (Call history)
                       _buildInfoSectionCard(
@@ -3233,7 +3467,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.add_comment_rounded),
+                    icon: Icon(Icons.add_comment_rounded, color: colorScheme.onSurface),
                     tooltip: 'New Message',
                     onPressed: () => _showNewMessageDialog(context),
                   ),
@@ -3355,7 +3589,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             children: [
               if (isCompact) ...[
                 IconButton(
-                  icon: const Icon(Icons.arrow_back),
+                  icon: Icon(Icons.arrow_back, color: colorScheme.onSurface),
                   tooltip: 'Back to messages',
                   visualDensity: VisualDensity.compact,
                   onPressed: () {
@@ -3497,7 +3731,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     ),
                     const SizedBox(width: 8),
                     IconButton(
-                      icon: const Icon(Icons.close, size: 16),
+                      icon: Icon(Icons.close, size: 16, color: colorScheme.onSurfaceVariant),
                       tooltip: 'Unpin message',
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
@@ -3888,8 +4122,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     );
   }
 
-  void _showAddNoteDialog() {
-    final titleController = TextEditingController();
+  void _showAddNoteDialog({String? initialTitle}) {
+    final titleController = TextEditingController(text: initialTitle ?? '');
     final contentController = TextEditingController();
 
     showDialog(
