@@ -338,16 +338,12 @@ class WindowDragArea extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onDoubleTap: onDoubleTap,
-      onPanStart: (_) => onStartDrag?.call(),
-      child: Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: (event) {
-          if (event.buttons == 1) {
-            onStartDrag?.call();
-          }
-        },
-        child: child,
-      ),
+      onPanStart: (_) {
+        onStartDrag?.call();
+      },
+      child: child,
     );
   }
 }
+
+

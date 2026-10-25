@@ -39,6 +39,12 @@ class _EverDialerAppState extends State<EverDialerApp> {
   ThemeMode _themeMode = ThemeMode.system;
   double _displayScale = 1.0;
   double _fontScale = 1.0;
+  late final PcSyncService _syncService;
+  late final bool _ownsSyncService;
+  late final BluetoothService _bluetoothService;
+  late final bool _ownsBluetoothService;
+  late final SystemService _systemService;
+  late final bool _ownsSystemService;
 
   @override
   void initState() {
@@ -54,6 +60,38 @@ class _EverDialerAppState extends State<EverDialerApp> {
         _themeMode = ThemeMode.light;
       }
     }
+
+    if (widget.syncService != null) {
+      _syncService = widget.syncService!;
+      _ownsSyncService = false;
+    } else {
+      _syncService = PcSyncService(prefs: widget.prefs);
+      _ownsSyncService = true;
+    }
+
+    if (widget.bluetoothService != null) {
+      _bluetoothService = widget.bluetoothService!;
+      _ownsBluetoothService = false;
+    } else {
+      _bluetoothService = BluetoothService(prefs: widget.prefs);
+      _ownsBluetoothService = true;
+    }
+
+    if (widget.systemService != null) {
+      _systemService = widget.systemService!;
+      _ownsSystemService = false;
+    } else {
+      _systemService = SystemService(prefs: widget.prefs);
+      _ownsSystemService = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_ownsSyncService) _syncService.dispose();
+    if (_ownsBluetoothService) _bluetoothService.dispose();
+    if (_ownsSystemService) _systemService.dispose();
+    super.dispose();
   }
 
   void _toggleTheme() {
@@ -93,19 +131,34 @@ class _EverDialerAppState extends State<EverDialerApp> {
 
   @override
   Widget build(BuildContext context) {
-    return DynamicColorBuilder(
-      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
-        final ColorScheme lightColorScheme = lightDynamic ??
-            ColorScheme.fromSeed(
-              seedColor: _fallbackAccentColor,
-              brightness: Brightness.light,
-            );
+    return ListenableBuilder(
+      listenable: _syncService,
+      builder: (context, _) {
+        final activeSeedColor = _syncService.phoneThemeColor ?? _fallbackAccentColor;
 
-        final ColorScheme darkColorScheme = darkDynamic ??
-            ColorScheme.fromSeed(
-              seedColor: _fallbackAccentColor,
-              brightness: Brightness.dark,
-            );
+        return DynamicColorBuilder(
+          builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+            final ColorScheme lightColorScheme = _syncService.phoneThemeColor != null
+                ? ColorScheme.fromSeed(
+                    seedColor: activeSeedColor,
+                    brightness: Brightness.light,
+                  )
+                : (lightDynamic ??
+                    ColorScheme.fromSeed(
+                      seedColor: activeSeedColor,
+                      brightness: Brightness.light,
+                    ));
+
+            final ColorScheme darkColorScheme = _syncService.phoneThemeColor != null
+                ? ColorScheme.fromSeed(
+                    seedColor: activeSeedColor,
+                    brightness: Brightness.dark,
+                  )
+                : (darkDynamic ??
+                    ColorScheme.fromSeed(
+                      seedColor: activeSeedColor,
+                      brightness: Brightness.dark,
+                    ));
 
         return MaterialApp(
           title: 'Ever Dialer PC',
@@ -149,9 +202,9 @@ class _EverDialerAppState extends State<EverDialerApp> {
           home: EverDialerHomePage(
             themeMode: _themeMode,
             onToggleTheme: _toggleTheme,
-            bluetoothService: widget.bluetoothService,
-            syncService: widget.syncService,
-            systemService: widget.systemService,
+            bluetoothService: _bluetoothService,
+            syncService: _syncService,
+            systemService: _systemService,
             prefs: widget.prefs,
             displayScale: _displayScale,
             fontScale: _fontScale,
@@ -160,10 +213,12 @@ class _EverDialerAppState extends State<EverDialerApp> {
             onResetDisplayScale: _resetDisplayScale,
             onResetFontScale: _resetFontScale,
           ),
-        );
-      },
-    );
-  }
+          );
+        },
+      );
+    },
+  );
+}
 }
 
 class EverDialerHomePage extends StatefulWidget {

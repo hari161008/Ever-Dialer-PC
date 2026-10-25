@@ -49,7 +49,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     super.dispose();
   }
 
-  void _initiateCall(String number, {String? displayName, String? photoBase64}) {
+  void _initiateCall(String number, {String? displayName, String? photoBase64, int? simSlot}) {
     final cleanTarget = number.replaceAll(RegExp(r'\D'), '');
     SyncedContact? matchingContact;
     if (cleanTarget.isNotEmpty) {
@@ -72,17 +72,19 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         number: number,
         displayName: resolvedName,
         photoBase64: resolvedPhoto,
+        simSlot: simSlot,
       );
     } else {
-      _executeCall(number, resolvedName);
+      _executeCall(number, resolvedName, simSlot: simSlot);
     }
   }
 
-  void _executeCall(String number, String displayName) {
-    widget.syncService.makeCall(number);
+  void _executeCall(String number, String displayName, {int? simSlot}) {
+    widget.syncService.makeCall(number, simSlot: simSlot);
+    final simText = simSlot != null && simSlot > 0 ? ' (SIM $simSlot)' : '';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Placing call to $displayName ($number)...'),
+        content: Text('Placing call to $displayName ($number)$simText...'),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
       ),
@@ -93,161 +95,313 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     required String number,
     required String displayName,
     String? photoBase64,
+    int? simSlot,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final hasCustomName = displayName.trim().isNotEmpty && displayName.trim() != number.trim();
 
+    final simCount = widget.syncService.simCount;
+    final defaultSim = widget.syncService.defaultSim;
+    int selectedSimSlot = simSlot ?? (defaultSim > 0 ? defaultSim : 1);
+    if (simCount <= 1) {
+      selectedSimSlot = 1;
+    }
+
+    final sim1Color = widget.syncService.sim1Color;
+    final sim2Color = widget.syncService.sim2Color;
+
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.55),
       builder: (dialogCtx) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 380),
-            child: Material(
-              color: colorScheme.surfaceContainerHigh,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(32),
-              ),
-              elevation: 12,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Header badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: colorScheme.secondaryContainer.withValues(alpha: 0.65),
-                        borderRadius: BorderRadius.circular(100),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Widget buildSimBadge(int slot, Color color, {double width = 18, double height = 22, double fontSize = 11}) {
+              return ClipPath(
+                clipper: const _SimCardNotchClipper(),
+                child: Container(
+                  width: width,
+                  height: height,
+                  color: color,
+                  alignment: Alignment.center,
+                  child: Text(
+                    '$slot',
+                    style: TextStyle(
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      height: 1.0,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            Widget buildSimChip({
+              required int slot,
+              required Color color,
+              required bool isSelected,
+              required VoidCallback onTap,
+            }) {
+              final chipBg = isSelected
+                  ? colorScheme.primaryContainer.withValues(alpha: 0.7)
+                  : colorScheme.surfaceContainerHighest.withValues(alpha: 0.45);
+              final borderColor = isSelected
+                  ? colorScheme.primary
+                  : colorScheme.outlineVariant.withValues(alpha: 0.6);
+
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onTap,
+                  borderRadius: BorderRadius.circular(16),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: chipBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: borderColor,
+                        width: isSelected ? 2 : 1,
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.call,
-                            size: 14,
-                            color: colorScheme.onSecondaryContainer,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        buildSimBadge(slot, color, width: 20, height: 24, fontSize: 11),
+                        const SizedBox(width: 8),
+                        Text(
+                          'SIM $slot',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                            color: isSelected
+                                ? colorScheme.onPrimaryContainer
+                                : colorScheme.onSurface,
                           ),
+                        ),
+                        if (isSelected) ...[
                           const SizedBox(width: 6),
+                          Icon(
+                            Icons.check_circle_rounded,
+                            size: 16,
+                            color: colorScheme.primary,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: Material(
+                  color: colorScheme.surfaceContainerHigh,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(32),
+                  ),
+                  elevation: 12,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 26),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Header badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: colorScheme.secondaryContainer.withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(100),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.call,
+                                size: 14,
+                                color: colorScheme.onSecondaryContainer,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Confirm placing call',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: colorScheme.onSecondaryContainer,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Contact Avatar
+                        SmoothContactAvatar(
+                          radius: 42,
+                          photoBase64: photoBase64,
+                          initials: hasCustomName
+                              ? displayName.trim().substring(0, 1).toUpperCase()
+                              : null,
+                          backgroundColor: colorScheme.primaryContainer,
+                          foregroundColor: colorScheme.onPrimaryContainer,
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Contact Name
+                        Text(
+                          displayName,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onSurface,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+
+                        if (hasCustomName) ...[
+                          const SizedBox(height: 4),
                           Text(
-                            'Confirm placing call',
+                            number,
                             style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: colorScheme.onSecondaryContainer,
+                              fontSize: 14,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+
+                        // SIM Selection row
+                        if (simCount >= 2) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              buildSimChip(
+                                slot: 1,
+                                color: sim1Color,
+                                isSelected: selectedSimSlot == 1,
+                                onTap: () => setDialogState(() => selectedSimSlot = 1),
+                              ),
+                              const SizedBox(width: 12),
+                              buildSimChip(
+                                slot: 2,
+                                color: sim2Color,
+                                isSelected: selectedSimSlot == 2,
+                                onTap: () => setDialogState(() => selectedSimSlot = 2),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          // Single SIM info pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                buildSimBadge(1, sim1Color, width: 17, height: 21, fontSize: 10),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Calling via SIM 1',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
+                        const SizedBox(height: 26),
 
-                    // Contact Avatar
-                    SmoothContactAvatar(
-                      radius: 42,
-                      photoBase64: photoBase64,
-                      initials: hasCustomName
-                          ? displayName.trim().substring(0, 1).toUpperCase()
-                          : null,
-                      backgroundColor: colorScheme.primaryContainer,
-                      foregroundColor: colorScheme.onPrimaryContainer,
-                    ),
-                    const SizedBox(height: 18),
-
-                    // Contact Name
-                    Text(
-                      displayName,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onSurface,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-
-                    if (hasCustomName) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        number,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                    const SizedBox(height: 28),
-
-                    // Action buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SizedBox(
-                            height: 50,
-                            child: FilledButton.tonal(
-                              style: FilledButton.styleFrom(
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(26),
-                                ),
-                              ),
-                              onPressed: () => Navigator.pop(dialogCtx),
-                              child: const Text(
-                                'Cancel',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: SizedBox(
-                            height: 50,
-                            child: FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: colorScheme.primary,
-                                foregroundColor: colorScheme.onPrimary,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(26),
-                                ),
-                              ),
-                              onPressed: () {
-                                Navigator.pop(dialogCtx);
-                                _executeCall(number, displayName);
-                              },
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.call, size: 20),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Call',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
+                        // Action buttons
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 48,
+                                child: FilledButton.tonal(
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(24),
                                     ),
                                   ),
-                                ],
+                                  onPressed: () => Navigator.pop(dialogCtx),
+                                  child: const Text(
+                                    'Cancel',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: SizedBox(
+                                height: 48,
+                                child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                                    backgroundColor: colorScheme.primary,
+                                    foregroundColor: colorScheme.onPrimary,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                    ),
+                                  ),
+                                  onPressed: () {
+                                    Navigator.pop(dialogCtx);
+                                    _executeCall(number, displayName, simSlot: selectedSimSlot);
+                                  },
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.call, size: 18),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          simCount >= 2 ? 'Call (SIM $selectedSimSlot)' : 'Call',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -1772,8 +1926,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     width: 17,
                     height: 20,
                     color: log.simSlot == 1
-                        ? const Color(0xFF2E7D32)
-                        : const Color(0xFFC62828),
+                        ? widget.syncService.sim1Color
+                        : widget.syncService.sim2Color,
                     alignment: Alignment.center,
                     child: Text(
                       '${log.simSlot}',
@@ -1840,14 +1994,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 icon: Icon(typeIcon, size: 18, color: iconColor),
                 tooltip: 'Call $displayTitle',
                 onPressed: () {
-                  _initiateCall(log.number, displayName: displayTitle);
+                  _initiateCall(log.number, displayName: displayTitle, simSlot: log.simSlot > 0 ? log.simSlot : null);
                 },
               ),
             ),
           ],
         ),
         onTap: () {
-          _initiateCall(log.number, displayName: displayTitle);
+          _initiateCall(log.number, displayName: displayTitle, simSlot: log.simSlot > 0 ? log.simSlot : null);
         },
       ),
     );
@@ -2705,7 +2859,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         icon: const Icon(Icons.call, size: 18),
         tooltip: 'Call back',
         onPressed: () {
-          _initiateCall(log.number, displayName: _selectedContactForDetails?.name ?? (log.name.isNotEmpty ? log.name : log.number), photoBase64: _selectedContactForDetails?.photoBase64);
+          _initiateCall(
+            log.number,
+            displayName: _selectedContactForDetails?.name ?? (log.name.isNotEmpty ? log.name : log.number),
+            photoBase64: _selectedContactForDetails?.photoBase64,
+            simSlot: log.simSlot > 0 ? log.simSlot : null,
+          );
         },
       ),
     );
@@ -3982,7 +4141,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             }
             break;
           case 'call':
-            _initiateCall(log.number, displayName: displayName);
+            _initiateCall(log.number, displayName: displayName, simSlot: log.simSlot > 0 ? log.simSlot : null);
             break;
           case 'sms':
             _openSmsForNumber(log.number);
@@ -4532,36 +4691,41 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   void _confirmDeleteSmsMessage(BuildContext context, String threadId, String messageId) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete message?'),
-        content: const Text(
-          'Delete this message? This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+      builder: (ctx) {
+        final dialogTheme = Theme.of(ctx);
+        return AlertDialog(
+          title: const Text('Delete message?'),
+          content: const Text(
+            'Delete this message? This action cannot be undone.',
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
             ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              widget.syncService.deleteSmsMessage(threadId, messageId);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Message deleted'),
-                  duration: Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: dialogTheme.colorScheme.error,
+                foregroundColor: dialogTheme.colorScheme.onError,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                widget.syncService.deleteSmsMessage(threadId, messageId);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Message deleted'),
+                      duration: Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
     );
   }
 

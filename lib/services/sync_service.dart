@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum CallType { incoming, outgoing, missed }
@@ -554,6 +554,17 @@ class PcSyncService extends ChangeNotifier {
   bool get syncContactPfpEnabled => _syncContactPfpEnabled;
   bool get confirmPlacingCall => _confirmPlacingCall;
 
+  Color? _phoneThemeColor;
+  Color? get phoneThemeColor => _phoneThemeColor;
+  int _defaultSim = 1;
+  int get defaultSim => _defaultSim;
+  int _simCount = 1;
+  int get simCount => _simCount;
+  Color _sim1Color = const Color(0xFF2E7D32);
+  Color get sim1Color => _sim1Color;
+  Color _sim2Color = const Color(0xFFC62828);
+  Color get sim2Color => _sim2Color;
+
   List<SyncedContact> get contacts => List.unmodifiable(_contacts);
   List<SyncedContact> get favourites =>
       List.unmodifiable(_contacts.where((c) => c.isFavorite));
@@ -963,6 +974,37 @@ class PcSyncService extends ChangeNotifier {
       _confirmPlacingCall = payload['confirmPlacingCall'] == true;
     }
 
+    if (payload.containsKey('themeColor')) {
+      final colorStr = payload['themeColor'] as String?;
+      if (colorStr != null && colorStr.isNotEmpty) {
+        try {
+          _phoneThemeColor = Color(int.parse(colorStr.replaceFirst('#', '0xFF')));
+        } catch (_) {
+          _phoneThemeColor = null;
+        }
+      } else {
+        _phoneThemeColor = null;
+      }
+    } else if (payload.containsKey('syncDynamicColors') && payload['syncDynamicColors'] == false) {
+      _phoneThemeColor = null;
+    }
+    if (payload.containsKey('defaultSim') && payload['defaultSim'] is int) {
+      _defaultSim = payload['defaultSim'] as int;
+    }
+    if (payload.containsKey('simCount') && payload['simCount'] is int) {
+      _simCount = payload['simCount'] as int;
+    }
+    if (payload.containsKey('sim1Color') && payload['sim1Color'] is String) {
+      try {
+        _sim1Color = Color(int.parse((payload['sim1Color'] as String).replaceFirst('#', '0xFF')));
+      } catch (_) {}
+    }
+    if (payload.containsKey('sim2Color') && payload['sim2Color'] is String) {
+      try {
+        _sim2Color = Color(int.parse((payload['sim2Color'] as String).replaceFirst('#', '0xFF')));
+      } catch (_) {}
+    }
+
     if (payload.containsKey('deviceName')) {
       _connectedDeviceName = payload['deviceName']?.toString();
     }
@@ -1056,16 +1098,20 @@ class PcSyncService extends ChangeNotifier {
     });
   }
 
-  Future<void> makeCall(String phoneNumber) async {
+  Future<void> makeCall(String phoneNumber, {int? simSlot}) async {
     final clean = phoneNumber.trim().replaceAll(RegExp(r'[^\d+]'), '');
     if (clean.isEmpty) return;
-    debugPrint('[PcSyncService] makeCall requested for $clean (isConnected: $_isConnected)');
+    debugPrint('[PcSyncService] makeCall requested for $clean (simSlot: $simSlot, isConnected: $_isConnected)');
 
     // 1. Send command via Bluetooth sync daemon
-    _sendCommand({
+    final cmd = <String, dynamic>{
       'cmd': 'make_call',
       'number': clean,
-    });
+    };
+    if (simSlot != null && simSlot > 0) {
+      cmd['simSlot'] = simSlot;
+    }
+    _sendCommand(cmd);
 
     // 2. Fallback via ADB if Bluetooth is not connected
     if (!_isConnected) {

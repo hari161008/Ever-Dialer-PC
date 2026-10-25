@@ -792,5 +792,85 @@ void main() {
     mockService.dispose();
     mockSyncService.dispose();
   });
+
+  testWidgets('Confirm call dialog displays Material You SIM selector and allows SIM switching', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+      'confirm_placing_call': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    mockSyncService.updateFromPayload({
+      'confirmPlacingCall': true,
+      'simCount': 2,
+      'defaultSim': 1,
+      'sim1Color': '#2E7D32',
+      'sim2Color': '#C62828',
+      'callLogs': [
+        {
+          'id': 'log_sim_test',
+          'name': 'Test Contact',
+          'number': '+15550001',
+          'type': 'incoming',
+          'timestamp': now,
+          'duration': 45,
+          'simSlot': 0,
+        },
+      ],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pump();
+
+    // Switch to Calls tab
+    await tester.tap(find.text('Calls'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Test Contact'), findsOneWidget);
+
+    // Tap call log entry to trigger confirm call dialog
+    await tester.tap(find.text('Test Contact'));
+    await tester.pumpAndSettle();
+
+    // Confirm dialog is displayed
+    expect(find.text('Confirm placing call'), findsOneWidget);
+    expect(find.text('Test Contact'), findsWidgets);
+    expect(find.descendant(of: find.byType(Dialog), matching: find.text('+15550001')), findsOneWidget);
+
+    // Both SIM 1 and SIM 2 selection chips are visible
+    expect(find.text('SIM 1'), findsOneWidget);
+    expect(find.text('SIM 2'), findsOneWidget);
+    expect(find.text('Call (SIM 1)'), findsOneWidget);
+
+    // Switch to SIM 2
+    await tester.tap(find.text('SIM 2'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Call (SIM 2)'), findsOneWidget);
+
+    // Tap Call
+    await tester.tap(find.text('Call (SIM 2)'));
+    await tester.pumpAndSettle();
+
+    // Dialog is dismissed
+    expect(find.text('Confirm placing call'), findsNothing);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
 }
+
 

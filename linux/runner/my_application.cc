@@ -521,22 +521,26 @@ static void system_channel_method_call_cb(FlMethodChannel* channel, FlMethodCall
     g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
     fl_method_call_respond(method_call, response, nullptr);
   } else if (g_strcmp0(method, "startDrag") == 0) {
-    guint32 time = g_last_button_time > 0 ? g_last_button_time : gtk_get_current_event_time();
+    GdkSeat* seat = gdk_display_get_default_seat(gdk_display_get_default());
+    GdkDevice* pointer = seat != nullptr ? gdk_seat_get_pointer(seat) : nullptr;
     gint root_x = g_last_button_x;
     gint root_y = g_last_button_y;
     guint button = g_last_button > 0 ? g_last_button : 1;
-
-    if (root_x == 0 && root_y == 0) {
-      GdkSeat* seat = gdk_display_get_default_seat(gdk_display_get_default());
-      if (seat != nullptr) {
-        GdkDevice* pointer = gdk_seat_get_pointer(seat);
-        if (pointer != nullptr) {
-          gdk_device_get_position(pointer, nullptr, &root_x, &root_y);
-        }
-      }
+    guint32 time = g_last_button_time > 0 ? g_last_button_time : gtk_get_current_event_time();
+    if (time == 0) {
+      time = GDK_CURRENT_TIME;
     }
 
-    gtk_window_begin_move_drag(window, (gint)button, root_x, root_y, time);
+    if (root_x == 0 && root_y == 0 && pointer != nullptr) {
+      gdk_device_get_position(pointer, nullptr, &root_x, &root_y);
+    }
+
+    GdkWindow* gdk_win = gtk_widget_get_window(GTK_WIDGET(window));
+    if (pointer != nullptr && gdk_win != nullptr) {
+      gdk_window_begin_move_drag_for_device(gdk_win, pointer, (gint)button, root_x, root_y, time);
+    } else {
+      gtk_window_begin_move_drag(window, (gint)button, root_x, root_y, time);
+    }
     g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
     fl_method_call_respond(method_call, response, nullptr);
   } else {
@@ -626,9 +630,9 @@ static void my_application_activate(GApplication* application) {
                            self);
   gtk_widget_realize(GTK_WIDGET(view));
 
-  gtk_widget_add_events(GTK_WIDGET(window), GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+  gtk_widget_add_events(GTK_WIDGET(window), GDK_BUTTON_PRESS_MASK);
   g_signal_connect(window, "button-press-event", G_CALLBACK(on_window_button_press_event), nullptr);
-  gtk_widget_add_events(GTK_WIDGET(view), GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+  gtk_widget_add_events(GTK_WIDGET(view), GDK_BUTTON_PRESS_MASK);
   g_signal_connect(view, "button-press-event", G_CALLBACK(on_window_button_press_event), nullptr);
 
   g_signal_connect(window, "delete-event", G_CALLBACK(window_delete_event_cb), nullptr);
