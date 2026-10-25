@@ -27,100 +27,116 @@ class BluetoothContainer extends StatelessWidget {
       elevation: 0,
       color: colorScheme.surfaceContainer,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(24),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(22.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Top Header Row
-            Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isNarrow = constraints.maxWidth < 420;
+          final padding = isNarrow ? 16.0 : 20.0;
+
+          return Padding(
+            padding: EdgeInsets.all(padding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Bluetooth Icon in Material You Squircle
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: isEnabled
-                        ? colorScheme.primaryContainer
-                        : colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      isEnabled ? Icons.bluetooth_connected : Icons.bluetooth,
-                      size: 28,
-                      color: isEnabled
-                          ? colorScheme.onPrimaryContainer
-                          : colorScheme.outline,
+                // Top Header Row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Bluetooth Icon in Material You Squircle
+                    Container(
+                      width: isNarrow ? 44 : 50,
+                      height: isNarrow ? 44 : 50,
+                      decoration: BoxDecoration(
+                        color: isEnabled
+                            ? colorScheme.primaryContainer
+                            : colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(isNarrow ? 14 : 16),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          isEnabled ? Icons.bluetooth_connected : Icons.bluetooth,
+                          size: isNarrow ? 24 : 26,
+                          color: isEnabled
+                              ? colorScheme.onPrimaryContainer
+                              : colorScheme.outline,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 16),
+                    SizedBox(width: isNarrow ? 12 : 14),
 
-                // Title and Subtitle
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Bluetooth Connection & Sync',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: colorScheme.onSurface,
-                        ),
+                    // Title and Subtitle
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Bluetooth Connection & Sync',
+                            style: (isNarrow
+                                    ? theme.textTheme.titleMedium
+                                    : theme.textTheme.titleLarge)
+                                ?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            isEnabled
+                                ? 'Syncing with Ever Dialer Mobile and streaming phone audio'
+                                : 'Sync phone data and use this PC as a wireless media speaker',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: isNarrow ? 12 : null,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        isEnabled
-                            ? 'Syncing with Ever Dialer Mobile and streaming phone audio'
-                            : 'Sync phone data and use this PC as a wireless media speaker',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+
+                    const SizedBox(width: 8),
+
+                    // Material 3 Switch Toggle
+                    Switch(
+                      value: isEnabled,
+                      onChanged: onToggle,
+                      thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
+                        if (states.contains(WidgetState.selected)) {
+                          return Icon(
+                            Icons.check,
+                            color: colorScheme.onPrimary,
+                            size: 18,
+                          );
+                        }
+                        return null;
+                      }),
+                    ),
+                  ],
                 ),
 
-                const SizedBox(width: 12),
-
-                // Material 3 Switch Toggle (Default: OFF)
-                Switch(
-                  value: isEnabled,
-                  onChanged: onToggle,
-                  thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
-                    if (states.contains(WidgetState.selected)) {
-                      return Icon(
-                        Icons.check,
-                        color: colorScheme.onPrimary,
-                        size: 18,
-                      );
-                    }
-                    return null;
-                  }),
+                const SizedBox(height: 16),
+                Divider(
+                  height: 1,
+                  thickness: 0.6,
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.4),
                 ),
+                const SizedBox(height: 14),
+
+                // Container Body depending on toggle state
+                if (isEnabled) ...[
+                  _buildActiveState(context, isNarrow: isNarrow),
+                ] else ...[
+                  _buildInactiveState(context, isNarrow: isNarrow),
+                ],
               ],
             ),
-
-            const SizedBox(height: 18),
-            Divider(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
-            const SizedBox(height: 14),
-
-            // Container Body depending on toggle state
-            if (isEnabled) ...[
-              _buildActiveState(context),
-            ] else ...[
-              _buildInactiveState(context),
-            ],
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildActiveState(BuildContext context) {
+  Widget _buildActiveState(BuildContext context, {required bool isNarrow}) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final device = state.connectedDevice;
@@ -128,7 +144,7 @@ class BluetoothContainer extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Status chips row
+        // Status chips wrap
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -136,7 +152,7 @@ class BluetoothContainer extends StatelessWidget {
           children: [
             if (device != null)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(999),
@@ -153,12 +169,15 @@ class BluetoothContainer extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      'Connected: ${device.name}',
-                      style: TextStyle(
-                        color: colorScheme.onPrimaryContainer,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
+                    Flexible(
+                      child: Text(
+                        'Connected: ${device.name}',
+                        style: TextStyle(
+                          color: colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12.5,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -166,7 +185,7 @@ class BluetoothContainer extends StatelessWidget {
               )
             else
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: colorScheme.secondaryContainer,
                   borderRadius: BorderRadius.circular(999),
@@ -183,12 +202,15 @@ class BluetoothContainer extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      'Discoverable — Ready for Phone',
-                      style: TextStyle(
-                        color: colorScheme.onSecondaryContainer,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
+                    Flexible(
+                      child: Text(
+                        'Discoverable — Ready for Phone',
+                        style: TextStyle(
+                          color: colorScheme.onSecondaryContainer,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12.5,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -197,7 +219,7 @@ class BluetoothContainer extends StatelessWidget {
 
             if (syncService != null && syncService!.isConnected)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: colorScheme.tertiaryContainer,
                   borderRadius: BorderRadius.circular(999),
@@ -216,7 +238,7 @@ class BluetoothContainer extends StatelessWidget {
                       style: TextStyle(
                         color: colorScheme.onTertiaryContainer,
                         fontWeight: FontWeight.w600,
-                        fontSize: 13,
+                        fontSize: 12.5,
                       ),
                     ),
                   ],
@@ -245,18 +267,18 @@ class BluetoothContainer extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.radar, size: 15, color: colorScheme.primary),
+                    Icon(Icons.radar, size: 14, color: colorScheme.primary),
                     const SizedBox(width: 6),
                     Text(
                       state.alias,
                       style: TextStyle(
                         color: colorScheme.onSurface,
-                        fontSize: 13,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(width: 4),
-                    Icon(Icons.copy, size: 13, color: colorScheme.outline),
+                    Icon(Icons.copy, size: 12, color: colorScheme.outline),
                   ],
                 ),
               ),
@@ -264,47 +286,60 @@ class BluetoothContainer extends StatelessWidget {
           ],
         ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
 
         if (device != null) ...[
           // Connected Phone Details Card
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: colorScheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(18),
             ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 22,
-                  backgroundColor: colorScheme.primaryContainer,
-                  child: Icon(
-                    Icons.smartphone,
-                    color: colorScheme.primary,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
+            child: isNarrow
+                ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        device.name,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: colorScheme.onSurface,
-                        ),
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: colorScheme.primaryContainer,
+                            child: Icon(
+                              Icons.smartphone,
+                              color: colorScheme.primary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  device.name,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: colorScheme.onSurface,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'MAC: ${device.mac}',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'MAC: ${device.mac}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 10),
                       Row(
                         children: [
                           Icon(
@@ -316,43 +351,122 @@ class BluetoothContainer extends StatelessWidget {
                                 ? colorScheme.primary
                                 : colorScheme.error,
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            state.phoneAudioProfileActive
-                                ? 'Streaming audio to PC speakers via PipeWire A2DP'
-                                : 'Audio stream profile inactive (Disabled in PipeWire)',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: state.phoneAudioProfileActive
-                                  ? colorScheme.primary
-                                  : colorScheme.error,
-                              fontWeight: FontWeight.w500,
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              state.phoneAudioProfileActive
+                                  ? 'Streaming audio to PC speakers via PipeWire A2DP'
+                                  : 'Audio stream profile inactive (Disabled in PipeWire)',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: state.phoneAudioProfileActive
+                                    ? colorScheme.primary
+                                    : colorScheme.error,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () => onDisconnect(device.mac),
+                          style: OutlinedButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          child: const Text('Disconnect'),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: colorScheme.primaryContainer,
+                        child: Icon(
+                          Icons.smartphone,
+                          color: colorScheme.primary,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              device.name,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'MAC: ${device.mac}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                Icon(
+                                  state.phoneAudioProfileActive
+                                      ? Icons.graphic_eq
+                                      : Icons.warning_amber_rounded,
+                                  size: 14,
+                                  color: state.phoneAudioProfileActive
+                                      ? colorScheme.primary
+                                      : colorScheme.error,
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    state.phoneAudioProfileActive
+                                        ? 'Streaming audio to PC speakers via PipeWire A2DP'
+                                        : 'Audio stream profile inactive (Disabled in PipeWire)',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: state.phoneAudioProfileActive
+                                          ? colorScheme.primary
+                                          : colorScheme.error,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                        onPressed: () => onDisconnect(device.mac),
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        child: const Text('Disconnect'),
+                      ),
                     ],
                   ),
-                ),
-                OutlinedButton(
-                  onPressed: () => onDisconnect(device.mac),
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  child: const Text('Disconnect'),
-                ),
-              ],
-            ),
           ),
         ] else ...[
           // Step by step pairing guide
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(isNarrow ? 12 : 16),
             decoration: BoxDecoration(
               color: colorScheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(18),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -361,15 +475,20 @@ class BluetoothContainer extends StatelessWidget {
                   children: [
                     Icon(
                       Icons.tips_and_updates_outlined,
-                      size: 20,
+                      size: 19,
                       color: colorScheme.primary,
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      'How to stream audio from your phone:',
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onSurface,
+                    Expanded(
+                      child: Text(
+                        'How to stream audio from your phone:',
+                        style: (isNarrow
+                                ? theme.textTheme.bodyMedium
+                                : theme.textTheme.titleSmall)
+                            ?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface,
+                        ),
                       ),
                     ),
                   ],
@@ -436,6 +555,7 @@ class BluetoothContainer extends StatelessWidget {
             text,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
+              fontSize: 12.5,
             ),
           ),
         ),
@@ -443,50 +563,61 @@ class BluetoothContainer extends StatelessWidget {
     );
   }
 
-  Widget _buildInactiveState(BuildContext context) {
+  Widget _buildInactiveState(BuildContext context, {required bool isNarrow}) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: colorScheme.outline,
-                  shape: BoxShape.circle,
+    return Container(
+      padding: EdgeInsets.all(isNarrow ? 12 : 14),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: colorScheme.outline,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Bluetooth & Sync Disabled',
-                style: TextStyle(
-                  color: colorScheme.outline,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Bluetooth & Sync Disabled',
+                    style: TextStyle(
+                      color: colorScheme.outline,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'Turn on the toggle above to connect with Ever Dialer Mobile for data sync and wireless audio streaming.',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
+          const SizedBox(height: 10),
+          Text(
+            'Turn on the toggle above to connect with Ever Dialer Mobile for data sync and wireless audio streaming.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: isNarrow ? 12.5 : null,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -4,9 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services/bluetooth_service.dart';
 import 'services/sync_service.dart';
 import 'services/system_service.dart';
+import 'services/appearance_preferences.dart';
 import 'screens/settings_screen.dart';
 import 'widgets/mobile_landscape_layout.dart';
 import 'widgets/window_header_actions.dart';
+import 'widgets/window_resize_frame.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,9 +38,7 @@ class EverDialerApp extends StatefulWidget {
 }
 
 class _EverDialerAppState extends State<EverDialerApp> {
-  ThemeMode _themeMode = ThemeMode.system;
-  double _displayScale = 1.0;
-  double _fontScale = 1.0;
+  late final AppearancePreferences _appearance;
   late final PcSyncService _syncService;
   late final bool _ownsSyncService;
   late final BluetoothService _bluetoothService;
@@ -49,17 +49,7 @@ class _EverDialerAppState extends State<EverDialerApp> {
   @override
   void initState() {
     super.initState();
-    final prefs = widget.prefs;
-    if (prefs != null) {
-      _displayScale = prefs.getDouble('display_scale') ?? 1.0;
-      _fontScale = prefs.getDouble('font_scale') ?? 1.0;
-      final themeStr = prefs.getString('theme_mode');
-      if (themeStr == 'dark') {
-        _themeMode = ThemeMode.dark;
-      } else if (themeStr == 'light') {
-        _themeMode = ThemeMode.light;
-      }
-    }
+    _appearance = AppearancePreferences(widget.prefs);
 
     if (widget.syncService != null) {
       _syncService = widget.syncService!;
@@ -91,134 +81,178 @@ class _EverDialerAppState extends State<EverDialerApp> {
     if (_ownsSyncService) _syncService.dispose();
     if (_ownsBluetoothService) _bluetoothService.dispose();
     if (_ownsSystemService) _systemService.dispose();
+    _appearance.dispose();
     super.dispose();
   }
 
   void _toggleTheme() {
-    setState(() {
-      if (_themeMode == ThemeMode.dark) {
-        _themeMode = ThemeMode.light;
-      } else if (_themeMode == ThemeMode.light) {
-        _themeMode = ThemeMode.system;
-      } else {
-        _themeMode = ThemeMode.dark;
-      }
-    });
-    widget.prefs?.setString('theme_mode', _themeMode.name);
+    if (_appearance.colorMode == 'dark' || _appearance.colorMode == 'black') {
+      _appearance.setColorMode('light');
+    } else if (_appearance.colorMode == 'light' || _appearance.colorMode == 'white') {
+      _appearance.setColorMode('auto');
+    } else {
+      _appearance.setColorMode('dark');
+    }
   }
 
   void _updateDisplayScale(double val) {
-    setState(() {
-      _displayScale = double.parse(val.toStringAsFixed(2));
-    });
-    widget.prefs?.setDouble('display_scale', _displayScale);
+    _appearance.setDisplayScale(val);
   }
 
   void _updateFontScale(double val) {
-    setState(() {
-      _fontScale = double.parse(val.toStringAsFixed(2));
-    });
-    widget.prefs?.setDouble('font_scale', _fontScale);
+    _appearance.setFontScale(val);
   }
 
   void _resetDisplayScale() {
-    _updateDisplayScale(1.0);
+    _appearance.resetDisplayScale();
   }
 
   void _resetFontScale() {
-    _updateFontScale(1.0);
+    _appearance.resetFontScale();
   }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: _syncService,
+      listenable: Listenable.merge([_syncService, _appearance]),
       builder: (context, _) {
-        final activeSeedColor = _syncService.phoneThemeColor ?? _fallbackAccentColor;
+        final activeSeedColor = (_appearance.dynamicColors && _syncService.phoneThemeColor != null)
+            ? _syncService.phoneThemeColor!
+            : (_appearance.dynamicColors
+                ? (_syncService.phoneThemeColor ?? _fallbackAccentColor)
+                : _appearance.customPrimaryColor);
 
         return DynamicColorBuilder(
           builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
-            final ColorScheme lightColorScheme = _syncService.phoneThemeColor != null
-                ? ColorScheme.fromSeed(
-                    seedColor: activeSeedColor,
-                    brightness: Brightness.light,
-                  )
-                : (lightDynamic ??
+            ColorScheme lightColorScheme;
+            ColorScheme darkColorScheme;
+
+            if (_appearance.dynamicColors) {
+              if (_syncService.phoneThemeColor != null) {
+                lightColorScheme = ColorScheme.fromSeed(
+                  seedColor: activeSeedColor,
+                  brightness: Brightness.light,
+                );
+                darkColorScheme = ColorScheme.fromSeed(
+                  seedColor: activeSeedColor,
+                  brightness: Brightness.dark,
+                );
+              } else {
+                lightColorScheme = lightDynamic ??
                     ColorScheme.fromSeed(
                       seedColor: activeSeedColor,
                       brightness: Brightness.light,
-                    ));
-
-            final ColorScheme darkColorScheme = _syncService.phoneThemeColor != null
-                ? ColorScheme.fromSeed(
-                    seedColor: activeSeedColor,
-                    brightness: Brightness.dark,
-                  )
-                : (darkDynamic ??
+                    );
+                darkColorScheme = darkDynamic ??
                     ColorScheme.fromSeed(
                       seedColor: activeSeedColor,
                       brightness: Brightness.dark,
-                    ));
+                    );
+              }
+            } else {
+              lightColorScheme = ColorScheme.fromSeed(
+                seedColor: activeSeedColor,
+                brightness: Brightness.light,
+              );
+              darkColorScheme = ColorScheme.fromSeed(
+                seedColor: activeSeedColor,
+                brightness: Brightness.dark,
+              );
+            }
 
-        return MaterialApp(
-          title: 'Ever Dialer PC',
-          debugShowCheckedModeBanner: false,
-          themeMode: _themeMode,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorScheme: lightColorScheme,
-            scaffoldBackgroundColor: lightColorScheme.surface,
-            iconTheme: IconThemeData(
-              size: (22 * _displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
-            ),
-            visualDensity: VisualDensity(
-              horizontal: ((_displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
-              vertical: ((_displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
-            ),
-          ),
-          darkTheme: ThemeData(
-            useMaterial3: true,
-            colorScheme: darkColorScheme,
-            scaffoldBackgroundColor: darkColorScheme.surface,
-            iconTheme: IconThemeData(
-              size: (22 * _displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
-            ),
-            visualDensity: VisualDensity(
-              horizontal: ((_displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
-              vertical: ((_displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
-            ),
-          ),
-          builder: (context, child) {
-            if (child == null) return const SizedBox.shrink();
-            final mediaQuery = MediaQuery.of(context);
-            final effectiveDisplay = _displayScale.clamp(0.25, 2.0);
-            return MediaQuery(
-              data: mediaQuery.copyWith(
-                textScaler: TextScaler.linear(_fontScale * effectiveDisplay),
+            final isBlackMode = _appearance.colorMode == 'black';
+            final isWhiteMode = _appearance.colorMode == 'white';
+
+            if (isBlackMode) {
+              darkColorScheme = darkColorScheme.copyWith(
+                surface: const Color(0xFF000000),
+                surfaceContainer: const Color(0xFF101010),
+                surfaceContainerHigh: const Color(0xFF161616),
+                surfaceContainerHighest: const Color(0xFF1E1E1E),
+                surfaceContainerLow: const Color(0xFF080808),
+                surfaceContainerLowest: const Color(0xFF000000),
+              );
+            }
+
+            if (isWhiteMode) {
+              lightColorScheme = lightColorScheme.copyWith(
+                surface: const Color(0xFFFFFFFF),
+                surfaceContainer: const Color(0xFFF7F7F7),
+                surfaceContainerHigh: const Color(0xFFEFEFEF),
+                surfaceContainerHighest: const Color(0xFFE8E8E8),
+                surfaceContainerLow: const Color(0xFFFCFCFC),
+                surfaceContainerLowest: const Color(0xFFFFFFFF),
+              );
+            }
+
+            final displayScale = _appearance.displayScale;
+            final fontScale = _appearance.fontScale;
+            final fontFamily = _appearance.customFontFamily;
+
+            return MaterialApp(
+              title: 'Ever Dialer PC',
+              debugShowCheckedModeBanner: false,
+              themeMode: _appearance.themeMode,
+              theme: ThemeData(
+                useMaterial3: true,
+                fontFamily: fontFamily,
+                colorScheme: lightColorScheme,
+                scaffoldBackgroundColor: isWhiteMode ? const Color(0xFFFFFFFF) : lightColorScheme.surface,
+                iconTheme: IconThemeData(
+                  size: (22 * displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
+                ),
+                visualDensity: VisualDensity(
+                  horizontal: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+                  vertical: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+                ),
               ),
-              child: child,
+              darkTheme: ThemeData(
+                useMaterial3: true,
+                fontFamily: fontFamily,
+                colorScheme: darkColorScheme,
+                scaffoldBackgroundColor: isBlackMode ? const Color(0xFF000000) : darkColorScheme.surface,
+                iconTheme: IconThemeData(
+                  size: (22 * displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
+                ),
+                visualDensity: VisualDensity(
+                  horizontal: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+                  vertical: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+                ),
+              ),
+              builder: (context, child) {
+                if (child == null) return const SizedBox.shrink();
+                final mediaQuery = MediaQuery.of(context);
+                final effectiveDisplay = displayScale.clamp(0.25, 2.0);
+                return WindowResizeFrame(
+                  child: MediaQuery(
+                    data: mediaQuery.copyWith(
+                      textScaler: TextScaler.linear(fontScale * effectiveDisplay),
+                    ),
+                    child: child,
+                  ),
+                );
+              },
+              home: EverDialerHomePage(
+                themeMode: _appearance.themeMode,
+                onToggleTheme: _toggleTheme,
+                bluetoothService: _bluetoothService,
+                syncService: _syncService,
+                systemService: _systemService,
+                appearance: _appearance,
+                prefs: widget.prefs,
+                displayScale: displayScale,
+                fontScale: fontScale,
+                onUpdateDisplayScale: _updateDisplayScale,
+                onUpdateFontScale: _updateFontScale,
+                onResetDisplayScale: _resetDisplayScale,
+                onResetFontScale: _resetFontScale,
+              ),
             );
           },
-          home: EverDialerHomePage(
-            themeMode: _themeMode,
-            onToggleTheme: _toggleTheme,
-            bluetoothService: _bluetoothService,
-            syncService: _syncService,
-            systemService: _systemService,
-            prefs: widget.prefs,
-            displayScale: _displayScale,
-            fontScale: _fontScale,
-            onUpdateDisplayScale: _updateDisplayScale,
-            onUpdateFontScale: _updateFontScale,
-            onResetDisplayScale: _resetDisplayScale,
-            onResetFontScale: _resetFontScale,
-          ),
-          );
-        },
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 }
 
 class EverDialerHomePage extends StatefulWidget {
@@ -227,6 +261,7 @@ class EverDialerHomePage extends StatefulWidget {
   final BluetoothService? bluetoothService;
   final PcSyncService? syncService;
   final SystemService? systemService;
+  final AppearancePreferences? appearance;
   final SharedPreferences? prefs;
   final double displayScale;
   final double fontScale;
@@ -242,6 +277,7 @@ class EverDialerHomePage extends StatefulWidget {
     this.bluetoothService,
     this.syncService,
     this.systemService,
+    this.appearance,
     this.prefs,
     this.displayScale = 1.0,
     this.fontScale = 1.0,
@@ -262,10 +298,20 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
   late final bool _ownsSyncService;
   late final SystemService _systemService;
   late final bool _ownsSystemService;
+  late final AppearancePreferences _appearance;
+  late final bool _ownsAppearance;
 
   @override
   void initState() {
     super.initState();
+    if (widget.appearance != null) {
+      _appearance = widget.appearance!;
+      _ownsAppearance = false;
+    } else {
+      _appearance = AppearancePreferences(widget.prefs);
+      _ownsAppearance = true;
+    }
+
     if (widget.bluetoothService != null) {
       _bluetoothService = widget.bluetoothService!;
       _ownsService = false;
@@ -315,6 +361,9 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
     if (_ownsSystemService) {
       _systemService.dispose();
     }
+    if (_ownsAppearance) {
+      _appearance.dispose();
+    }
     super.dispose();
   }
 
@@ -326,6 +375,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
           bluetoothService: _bluetoothService,
           syncService: _syncService,
           systemService: _systemService,
+          appearance: _appearance,
           themeMode: widget.themeMode,
           onToggleTheme: widget.onToggleTheme,
           displayScale: widget.displayScale,

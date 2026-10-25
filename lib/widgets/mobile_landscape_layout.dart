@@ -3081,30 +3081,52 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       }
     }).toList();
 
-    SyncedSmsThread? activeThread;
-    if (filteredThreads.isNotEmpty) {
-      activeThread = filteredThreads.firstWhere(
-        (t) => t.id == _selectedSmsThreadId,
-        orElse: () => filteredThreads.first,
-      );
-      _selectedSmsThreadId = activeThread.id;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 650;
 
-      if (activeThread.unreadCount > 0) {
-        final threadIdToMark = activeThread.id;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          final currentThread = widget.syncService.smsThreads.cast<SyncedSmsThread?>().firstWhere(
-            (t) => t?.id == threadIdToMark,
-            orElse: () => null,
-          );
-          if (currentThread != null && currentThread.unreadCount > 0) {
-            widget.syncService.markSmsAsRead(currentThread.id);
+        SyncedSmsThread? activeThread;
+        if (filteredThreads.isNotEmpty) {
+          if (_selectedSmsThreadId != null) {
+            activeThread = filteredThreads.cast<SyncedSmsThread?>().firstWhere(
+              (t) => t?.id == _selectedSmsThreadId,
+              orElse: () => null,
+            );
           }
-        });
-      }
-    } else {
-      activeThread = null;
-    }
+
+          // If on wide screens, default to first thread if nothing selected or not found
+          if (!isCompact && activeThread == null) {
+            activeThread = filteredThreads.first;
+            _selectedSmsThreadId = activeThread.id;
+          }
+
+          if (activeThread != null && activeThread.unreadCount > 0) {
+            final threadIdToMark = activeThread.id;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              final currentThread = widget.syncService.smsThreads.cast<SyncedSmsThread?>().firstWhere(
+                (t) => t?.id == threadIdToMark,
+                orElse: () => null,
+              );
+              if (currentThread != null && currentThread.unreadCount > 0) {
+                widget.syncService.markSmsAsRead(currentThread.id);
+              }
+            });
+          }
+        } else {
+          activeThread = null;
+        }
+
+        // On smaller screens: when a chat is open, hide the SMS logs list and show only the chat
+        if (isCompact && activeThread != null) {
+          return Row(
+            children: [
+              Expanded(
+                child: _buildSmsChatDetail(activeThread, isCompact: true),
+              ),
+            ],
+          );
+        }
 
     final pinnedThreads = filteredThreads.where((t) => widget.syncService.isThreadPinned(t.id)).toList();
     final unpinnedThreads = filteredThreads.where((t) => !widget.syncService.isThreadPinned(t.id)).toList();
@@ -3194,141 +3216,165 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       threadWidgets.add(const SizedBox(height: 12));
     }
 
-    return Row(
-      children: [
-        // Thread list
-        SizedBox(
-          width: 340,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Messages',
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: colorScheme.onSurface,
-                        ),
+        final threadListContent = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Messages',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.add_comment_rounded),
-                      tooltip: 'New Message',
-                      onPressed: () => _showNewMessageDialog(context),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Category Filter Pills
-              Builder(
-                builder: (context) {
-                  final categories = widget.syncService.smsCategories
-                      .where((c) => c.isVisible)
-                      .toList();
-                  final chips = categories.isNotEmpty
-                      ? categories.map((c) => MapEntry(c.id, c.name)).toList()
-                      : const [
-                          MapEntry('all', 'All'),
-                          MapEntry('favourites', 'Favourites'),
-                          MapEntry('starred', 'Starred'),
-                          MapEntry('contacts', 'Contacts'),
-                          MapEntry('unknown', 'Unknown'),
-                          MapEntry('otp', 'OTP'),
-                        ];
-                  return SizedBox(
-                    height: 38,
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Row(
-                        children: [
-                          for (int i = 0; i < chips.length; i++) ...[
-                            if (i > 0) const SizedBox(width: 6),
-                            _buildSmsCategoryChip(chips[i].key, chips[i].value),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-
-              Expanded(
-                child: filteredThreads.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Text(
-                            'No conversations found',
-                            style: TextStyle(color: colorScheme.outline),
-                          ),
-                        ),
-                      )
-                    : ListView(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        children: threadWidgets,
-                      ),
-              ),
-            ],
-          ),
-        ),
-
-        VerticalDivider(
-          width: 1,
-          color: colorScheme.outlineVariant.withValues(alpha: 0.35),
-        ),
-
-        // Conversation detail view
-        if (activeThread == null)
-          Expanded(
-            child: Center(
-              child: Text(
-                'Select a conversation to start messaging',
-                style: TextStyle(color: colorScheme.outline),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_comment_rounded),
+                    tooltip: 'New Message',
+                    onPressed: () => _showNewMessageDialog(context),
+                  ),
+                ],
               ),
             ),
-          )
-        else
-          _buildSmsChatDetail(activeThread),
-      ],
+
+            // Category Filter Pills
+            Builder(
+              builder: (context) {
+                final categories = widget.syncService.smsCategories
+                    .where((c) => c.isVisible)
+                    .toList();
+                final chips = categories.isNotEmpty
+                    ? categories.map((c) => MapEntry(c.id, c.name)).toList()
+                    : const [
+                        MapEntry('all', 'All'),
+                        MapEntry('favourites', 'Favourites'),
+                        MapEntry('starred', 'Starred'),
+                        MapEntry('contacts', 'Contacts'),
+                        MapEntry('unknown', 'Unknown'),
+                        MapEntry('otp', 'OTP'),
+                      ];
+                return SizedBox(
+                  height: 38,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        for (int i = 0; i < chips.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 6),
+                          _buildSmsCategoryChip(chips[i].key, chips[i].value),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+
+            Expanded(
+              child: filteredThreads.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Text(
+                          'No conversations found',
+                          style: TextStyle(color: colorScheme.outline),
+                        ),
+                      ),
+                    )
+                  : ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      children: threadWidgets,
+                    ),
+            ),
+          ],
+        );
+
+        if (isCompact) {
+          // On small screen, show full width thread list (SMS logs list) when no chat is open
+          return Row(
+            children: [
+              Expanded(child: threadListContent),
+            ],
+          );
+        }
+
+        // Wide desktop screen: side-by-side master-detail layout
+        return Row(
+          children: [
+            SizedBox(
+              width: 340,
+              child: threadListContent,
+            ),
+            VerticalDivider(
+              width: 1,
+              color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+            ),
+            if (activeThread == null)
+              Expanded(
+                child: Center(
+                  child: Text(
+                    'Select a conversation to start messaging',
+                    style: TextStyle(color: colorScheme.outline),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: _buildSmsChatDetail(activeThread, isCompact: false),
+              ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildSmsChatDetail(SyncedSmsThread thread) {
+  Widget _buildSmsChatDetail(SyncedSmsThread thread, {bool isCompact = false}) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Expanded(
-      child: Column(
-        children: [
-          // Chat Header matching mobile SmsChatScreen top pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerLow,
-              border: Border(
-                bottom: BorderSide(
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-                ),
+    return Column(
+      children: [
+        // Chat Header matching mobile SmsChatScreen top pill
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerLow,
+            border: Border(
+              bottom: BorderSide(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.3),
               ),
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
+          ),
+          child: Row(
+            children: [
+              if (isCompact) ...[
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  tooltip: 'Back to messages',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    setState(() {
+                      _selectedSmsThreadId = null;
+                    });
+                  },
+                ),
+                const SizedBox(width: 4),
+              ],
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -3700,8 +3746,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             ),
           ),
         ],
-      ),
-    );
+      );
   }
 
   // ═════════════════════════════════════════════════════════════════════════

@@ -9,10 +9,12 @@ class SystemService extends ChangeNotifier {
   final SharedPreferences? prefs;
   bool _autostartEnabled = true;
   bool _systemTrayEnabled = true;
+  bool _exitOnClose = false;
   bool _isMaximized = false;
 
   bool get autostartEnabled => _autostartEnabled;
   bool get systemTrayEnabled => _systemTrayEnabled;
+  bool get exitOnClose => _exitOnClose;
   bool get isMaximized => _isMaximized;
 
   Future<void> minimizeWindow() async {
@@ -42,8 +44,14 @@ class SystemService extends ChangeNotifier {
       if (Platform.isLinux) {
         await _channel.invokeMethod('closeWindow');
       }
+      if (_exitOnClose) {
+        exit(0);
+      }
     } catch (e) {
       debugPrint('[SystemService] Error closing window: $e');
+      if (_exitOnClose) {
+        exit(0);
+      }
     }
   }
 
@@ -59,6 +67,31 @@ class SystemService extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('[SystemService] Error starting window drag: $e');
+    }
+  }
+
+  int _lastResizeCallTime = 0;
+
+  Future<void> startWindowResize(String edge) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastResizeCallTime < 100) return;
+    _lastResizeCallTime = now;
+    try {
+      if (Platform.isLinux) {
+        await _channel.invokeMethod('startResize', {'edge': edge});
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error starting window resize: $e');
+    }
+  }
+
+  static Future<void> startResize(String edge) async {
+    try {
+      if (Platform.isLinux) {
+        await _channel.invokeMethod('startResize', {'edge': edge});
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error starting static window resize: $e');
     }
   }
 
@@ -121,8 +154,10 @@ class SystemService extends ChangeNotifier {
   void _loadSettings() {
     _autostartEnabled = prefs?.getBool('autostart_enabled') ?? true;
     _systemTrayEnabled = prefs?.getBool('system_tray_enabled') ?? true;
+    _exitOnClose = prefs?.getBool('exit_on_close') ?? false;
     _applyAutostart(_autostartEnabled);
     _applySystemTray(_systemTrayEnabled);
+    _applyExitOnClose(_exitOnClose);
   }
 
   Future<void> setAutostartEnabled(bool enabled) async {
@@ -132,11 +167,28 @@ class SystemService extends ChangeNotifier {
     await _applyAutostart(enabled);
   }
 
+  Future<void> setExitOnClose(bool enabled) async {
+    _exitOnClose = enabled;
+    notifyListeners();
+    await prefs?.setBool('exit_on_close', enabled);
+    await _applyExitOnClose(enabled);
+  }
+
   Future<void> setSystemTrayEnabled(bool enabled) async {
     _systemTrayEnabled = enabled;
     notifyListeners();
     await prefs?.setBool('system_tray_enabled', enabled);
     await _applySystemTray(enabled);
+  }
+
+  Future<void> _applyExitOnClose(bool enabled) async {
+    try {
+      if (Platform.isLinux) {
+        await _channel.invokeMethod('setExitOnClose', {'enabled': enabled});
+      }
+    } catch (e) {
+      debugPrint('[SystemService] Error applying exit on close: $e');
+    }
   }
 
   Future<void> _applyAutostart(bool enabled) async {

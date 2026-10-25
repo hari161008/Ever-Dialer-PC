@@ -803,6 +803,10 @@ class PcSyncService extends ChangeNotifier {
     _prefs = prefs;
     if (_prefs != null) {
       _pcSyncEnabled = _prefs!.getBool(_prefPcSyncEnabledKey) ?? false;
+      final savedThemeColor = _prefs!.getInt('last_synced_theme_color');
+      if (savedThemeColor != null) {
+        _phoneThemeColor = Color(savedThemeColor);
+      }
     }
     _init();
   }
@@ -812,6 +816,11 @@ class PcSyncService extends ChangeNotifier {
     final saved = _prefs?.getBool(_prefPcSyncEnabledKey) ?? false;
     if (saved != _pcSyncEnabled) {
       _pcSyncEnabled = saved;
+      notifyListeners();
+    }
+    final savedThemeColor = _prefs?.getInt('last_synced_theme_color');
+    if (savedThemeColor != null && _phoneThemeColor == null) {
+      _phoneThemeColor = Color(savedThemeColor);
       notifyListeners();
     }
 
@@ -1140,14 +1149,18 @@ class PcSyncService extends ChangeNotifier {
       if (colorStr != null && colorStr.isNotEmpty) {
         try {
           _phoneThemeColor = Color(int.parse(colorStr.replaceFirst('#', '0xFF')));
+          _prefs?.setInt('last_synced_theme_color', _phoneThemeColor!.toARGB32());
         } catch (_) {
           _phoneThemeColor = null;
+          _prefs?.remove('last_synced_theme_color');
         }
       } else {
         _phoneThemeColor = null;
+        _prefs?.remove('last_synced_theme_color');
       }
     } else if (payload.containsKey('syncDynamicColors') && payload['syncDynamicColors'] == false) {
       _phoneThemeColor = null;
+      _prefs?.remove('last_synced_theme_color');
     }
     if (payload.containsKey('defaultSim') && payload['defaultSim'] is int) {
       _defaultSim = payload['defaultSim'] as int;

@@ -6,8 +6,12 @@ import 'package:ever_dialer_pc/main.dart';
 import 'package:ever_dialer_pc/services/bluetooth_service.dart';
 import 'package:ever_dialer_pc/services/sync_service.dart';
 import 'package:ever_dialer_pc/widgets/bluetooth_container.dart';
-import 'package:ever_dialer_pc/widgets/audio_status_card.dart';
 import 'package:ever_dialer_pc/widgets/window_header_actions.dart';
+import 'package:ever_dialer_pc/widgets/rivo_components.dart';
+import 'package:ever_dialer_pc/services/system_service.dart';
+import 'package:ever_dialer_pc/services/appearance_preferences.dart';
+import 'package:ever_dialer_pc/screens/system_audio_screen.dart';
+import 'package:ever_dialer_pc/screens/settings_screen.dart';
 
 void main() {
   testWidgets('EverDialerApp shows dashboard and opens Settings screen with unified Bluetooth Connection & Sync container', (WidgetTester tester) async {
@@ -67,11 +71,11 @@ void main() {
     expect(mockService.state.speakerModeEnabled, true);
     expect(mockSyncService.pcSyncEnabled, true);
 
-    // Verify that Display scale and Font scale sliders exist in Appearance card
-    expect(find.text('Display scale'), findsOneWidget);
-    expect(find.text('UI and layout scaling'), findsOneWidget);
-    expect(find.text('Font scale'), findsOneWidget);
-    expect(find.text('Text size scaling'), findsOneWidget);
+    // Verify that Appearance section and sliders exist
+    expect(find.text('Appearance'), findsOneWidget);
+    expect(find.text('Interface'), findsOneWidget);
+    expect(find.text('Display Scaling'), findsOneWidget);
+    expect(find.text('Font Size'), findsOneWidget);
     expect(find.text('100%'), findsNWidgets(2)); // Both default to 100%
 
     mockService.dispose();
@@ -166,20 +170,14 @@ void main() {
     // Verify unified Bluetooth Connection & Sync container exists
     expect(find.text('Bluetooth Connection & Sync'), findsOneWidget);
 
-    // Verify card order: Theme & Appearance is below Bluetooth container and above Audio card
+    // Verify card order: Appearance section is below Bluetooth container
     final btY = tester.getTopLeft(find.byType(BluetoothContainer)).dy;
-    final themeY = tester.getTopLeft(find.text('Appearance Theme')).dy;
-    final audioY = tester.getTopLeft(find.byType(AudioStatusCard)).dy;
-    expect(btY < themeY, isTrue);
-    expect(themeY < audioY, isTrue);
+    final appY = tester.getTopLeft(find.text('Appearance')).dy;
+    expect(btY < appY, isTrue);
 
-    // Verify persisted scale values are reflected
+    // Verify persisted scale values are reflected in Appearance detail pane
     expect(find.text('115%'), findsOneWidget);
     expect(find.text('125%'), findsOneWidget);
-
-    // Verify display scale slider range is 0% to 200%
-    expect(find.text('0%'), findsOneWidget);
-    expect(find.text('200%'), findsWidgets);
 
     mockService.dispose();
     mockSyncService.dispose();
@@ -517,38 +515,48 @@ void main() {
     // Verify settings_outlined is also not present in Settings screen
     expect(find.byIcon(Icons.settings_outlined), findsNothing);
 
+    // Select System & Audio pane in dual-pane layout
+    final sysItemFinder = find.widgetWithText(RivoListItem, 'System & Audio');
+    await tester.ensureVisible(sysItemFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(sysItemFinder);
+    await tester.pumpAndSettle();
+
     // Verify System & Startup card exists
     expect(find.text('System & Startup'), findsOneWidget);
     expect(find.text('Autostart'), findsOneWidget);
     expect(find.text('Show in system tray'), findsOneWidget);
 
-    // Verify About Ever Dialer PC section with v1.0.0 exists
-    expect(find.text('About Ever Dialer PC'), findsOneWidget);
-    expect(find.text('v1.0.0'), findsWidgets);
-
     // Verify both default to ON (true)
-    final autostartTile = tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Autostart'));
-    final trayTile = tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Show in system tray'));
+    final autostartTile = tester.widget<RivoSwitchListItem>(find.widgetWithText(RivoSwitchListItem, 'Autostart'));
+    final trayTile = tester.widget<RivoSwitchListItem>(find.widgetWithText(RivoSwitchListItem, 'Show in system tray'));
     expect(autostartTile.value, isTrue);
     expect(trayTile.value, isTrue);
 
-    // Scroll and toggle autostart to OFF
-    final autostartFinder = find.widgetWithText(SwitchListTile, 'Autostart');
-    await tester.ensureVisible(autostartFinder);
-    await tester.pumpAndSettle();
+    // Toggle autostart to OFF
+    final autostartFinder = find.widgetWithText(RivoSwitchListItem, 'Autostart');
     await tester.tap(autostartFinder);
     await tester.pumpAndSettle();
-    final updatedAutostartTile = tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Autostart'));
+    final updatedAutostartTile = tester.widget<RivoSwitchListItem>(find.widgetWithText(RivoSwitchListItem, 'Autostart'));
     expect(updatedAutostartTile.value, isFalse);
 
-    // Scroll and toggle system tray to OFF
-    final trayFinder = find.widgetWithText(SwitchListTile, 'Show in system tray');
-    await tester.ensureVisible(trayFinder);
-    await tester.pumpAndSettle();
+    // Toggle system tray to OFF
+    final trayFinder = find.widgetWithText(RivoSwitchListItem, 'Show in system tray');
     await tester.tap(trayFinder);
     await tester.pumpAndSettle();
-    final updatedTrayTile = tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Show in system tray'));
+    final updatedTrayTile = tester.widget<RivoSwitchListItem>(find.widgetWithText(RivoSwitchListItem, 'Show in system tray'));
     expect(updatedTrayTile.value, isFalse);
+
+    // Select About pane in dual-pane layout
+    final aboutItemFinder = find.widgetWithText(RivoListItem, 'About Ever Dialer');
+    await tester.ensureVisible(aboutItemFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(aboutItemFinder);
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Verify About Ever Dialer PC section with v1.0.0 exists
+    expect(find.text('Ever Dialer PC'), findsWidgets);
+    expect(find.text('v1.0.0'), findsWidgets);
 
     // Verify Card backgrounds have no outline borders
     for (final card in tester.widgetList<Card>(find.byType(Card))) {
@@ -1066,6 +1074,210 @@ void main() {
     await tester.tap(target);
     await tester.pump(const Duration(milliseconds: 350));
     expect(doubleTapCount, 1);
+  });
+
+  testWidgets('Settings screen title bar has window minimize, maximize, and close controls and drag area', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+    final mockSystemService = SystemService(prefs: prefs);
+
+    await tester.pumpWidget(MaterialApp(
+      home: SettingsScreen(
+        bluetoothService: mockService,
+        syncService: mockSyncService,
+        systemService: mockSystemService,
+        appearance: AppearancePreferences(prefs),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // Verify Settings screen AppBar has WindowDragArea and WindowHeaderActions with minimize, maximize, and close buttons
+    expect(find.descendant(of: find.byType(AppBar), matching: find.byType(WindowDragArea)), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.byTooltip('Minimize')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.byTooltip('Maximize')), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.byTooltip('Close')), findsOneWidget);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+    mockSystemService.dispose();
+  });
+
+  testWidgets('Settings screen contains System & Audio container that navigates to SystemAudioScreen with Exit on Close', (WidgetTester tester) async {
+    // Test on smaller screen size (single-pane mode)
+    tester.view.physicalSize = const Size(580, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+    final mockSystemService = SystemService(prefs: prefs);
+
+    await tester.pumpWidget(MaterialApp(
+      home: SettingsScreen(
+        bluetoothService: mockService,
+        syncService: mockSyncService,
+        systemService: mockSystemService,
+        appearance: AppearancePreferences(prefs),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // In single-pane mode, System & Audio is a container below the heading
+    final sysItemFinder = find.widgetWithText(RivoListItem, 'System & Audio');
+    expect(sysItemFinder, findsOneWidget);
+
+    // Tap to navigate to new page
+    await tester.tap(sysItemFinder);
+    await tester.pumpAndSettle();
+
+    // Verify SystemAudioScreen is displayed
+    expect(find.byType(SystemAudioScreen), findsOneWidget);
+    expect(find.text('System & Startup'), findsOneWidget);
+    expect(find.text('Autostart'), findsOneWidget);
+    expect(find.text('Exit on Close'), findsOneWidget);
+    expect(find.text('Show in system tray'), findsOneWidget);
+
+    // Verify Exit on Close defaults to OFF (false)
+    final exitTile = tester.widget<RivoSwitchListItem>(find.widgetWithText(RivoSwitchListItem, 'Exit on Close'));
+    expect(exitTile.value, isFalse);
+    expect(mockSystemService.exitOnClose, isFalse);
+
+    // Toggle Exit on Close to ON
+    await tester.tap(find.widgetWithText(RivoSwitchListItem, 'Exit on Close'));
+    await tester.pumpAndSettle();
+    expect(mockSystemService.exitOnClose, isTrue);
+    expect(prefs.getBool('exit_on_close'), isTrue);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+    mockSystemService.dispose();
+  });
+
+  testWidgets('SMS view on smaller screen size: SMS logs list is shown initially; opening any chat hides the SMS logs list and shows back button', (WidgetTester tester) async {
+    // Smaller screen size (580 x 720)
+    tester.view.physicalSize = const Size(580, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    mockSyncService.updateFromPayload({
+      'smsThreads': [
+        {
+          'id': 'thread_1',
+          'contactName': 'John Doe',
+          'phone': '+15551234',
+          'snippet': 'Hello there',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'unreadCount': 0,
+          'messages': [
+            {
+              'id': 'msg_1',
+              'body': 'Hello there',
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+              'isOutgoing': false,
+            },
+          ],
+        },
+      ],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pump();
+
+    // Switch to SMS tab
+    await tester.tap(find.text('SMS'));
+    await tester.pumpAndSettle();
+
+    // Initially on small screen, the SMS logs list is visible
+    expect(find.text('Messages'), findsOneWidget);
+    expect(find.text('John Doe'), findsOneWidget);
+    // Back button is not visible since no chat is open
+    expect(find.byTooltip('Back to messages'), findsNothing);
+
+    // Tap on the chat thread to open it
+    await tester.tap(find.text('John Doe'));
+    await tester.pumpAndSettle();
+
+    // Chat is now open: the SMS logs list heading 'Messages' is HIDDEN, and chat view is shown
+    expect(find.text('Messages'), findsNothing);
+    expect(find.text('Hello there'), findsWidgets);
+    expect(find.byTooltip('Back to messages'), findsOneWidget);
+
+    // Tap the back button to return to SMS logs list
+    await tester.tap(find.byTooltip('Back to messages'));
+    await tester.pumpAndSettle();
+
+    // The SMS logs list is visible again
+    expect(find.text('Messages'), findsOneWidget);
+    expect(find.byTooltip('Back to messages'), findsNothing);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('BluetoothContainer adapts to narrow container width without overflow', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 320,
+              child: BluetoothContainer(
+                state: mockService.state,
+                onToggle: (_) {},
+                onDisconnect: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bluetooth Connection & Sync'), findsOneWidget);
+    expect(find.text('Bluetooth & Sync Disabled'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    mockService.dispose();
   });
 }
 

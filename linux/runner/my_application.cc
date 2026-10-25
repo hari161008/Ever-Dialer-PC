@@ -20,6 +20,7 @@ G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 static GtkStatusIcon* g_status_icon = nullptr;
 static gboolean g_system_tray_enabled = TRUE;
+static gboolean g_exit_on_close = FALSE;
 static GDBusConnection* g_dbus_conn = nullptr;
 static guint g_sni_object_id = 0;
 static guint g_dbusmenu_object_id = 0;
@@ -485,6 +486,10 @@ static gboolean on_window_button_press_event(GtkWidget* widget, GdkEventButton* 
 }
 
 static gboolean window_delete_event_cb(GtkWidget* widget, GdkEvent* event, gpointer user_data) {
+  if (g_exit_on_close) {
+    quit_application(GTK_WINDOW(widget));
+    return TRUE;
+  }
   if (g_system_tray_enabled) {
     gtk_widget_hide(widget);
     return TRUE; // Intercept close and minimize/hide to system tray
@@ -508,6 +513,18 @@ static void system_channel_method_call_cb(FlMethodChannel* channel, FlMethodCall
     update_system_tray(window, enabled);
     g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
     fl_method_call_respond(method_call, response, nullptr);
+  } else if (g_strcmp0(method, "setExitOnClose") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    gboolean enabled = FALSE;
+    if (args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* val = fl_value_lookup_string(args, "enabled");
+      if (val != nullptr && fl_value_get_type(val) == FL_VALUE_TYPE_BOOL) {
+        enabled = fl_value_get_bool(val);
+      }
+    }
+    g_exit_on_close = enabled;
+    g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    fl_method_call_respond(method_call, response, nullptr);
   } else if (g_strcmp0(method, "minimizeWindow") == 0) {
     gtk_window_iconify(window);
     g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
@@ -523,7 +540,9 @@ static void system_channel_method_call_cb(FlMethodChannel* channel, FlMethodCall
     g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(result));
     fl_method_call_respond(method_call, response, nullptr);
   } else if (g_strcmp0(method, "closeWindow") == 0) {
-    if (g_system_tray_enabled) {
+    if (g_exit_on_close) {
+      quit_application(window);
+    } else if (g_system_tray_enabled) {
       gtk_widget_hide(GTK_WIDGET(window));
     } else {
       gtk_widget_destroy(GTK_WIDGET(window));
@@ -549,6 +568,58 @@ static void system_channel_method_call_cb(FlMethodChannel* channel, FlMethodCall
     }
 
     gtk_window_begin_move_drag(window, (gint)button, root_x, root_y, time);
+    g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    fl_method_call_respond(method_call, response, nullptr);
+  } else if (g_strcmp0(method, "startResize") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    const gchar* edge_str = nullptr;
+    if (args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* val = fl_value_lookup_string(args, "edge");
+      if (val != nullptr && fl_value_get_type(val) == FL_VALUE_TYPE_STRING) {
+        edge_str = fl_value_get_string(val);
+      }
+    }
+    GdkWindowEdge edge = GDK_WINDOW_EDGE_EAST;
+    gboolean edge_valid = TRUE;
+    if (g_strcmp0(edge_str, "top") == 0) {
+      edge = GDK_WINDOW_EDGE_NORTH;
+    } else if (g_strcmp0(edge_str, "bottom") == 0) {
+      edge = GDK_WINDOW_EDGE_SOUTH;
+    } else if (g_strcmp0(edge_str, "left") == 0) {
+      edge = GDK_WINDOW_EDGE_WEST;
+    } else if (g_strcmp0(edge_str, "right") == 0) {
+      edge = GDK_WINDOW_EDGE_EAST;
+    } else if (g_strcmp0(edge_str, "topLeft") == 0 || g_strcmp0(edge_str, "top_left") == 0) {
+      edge = GDK_WINDOW_EDGE_NORTH_WEST;
+    } else if (g_strcmp0(edge_str, "topRight") == 0 || g_strcmp0(edge_str, "top_right") == 0) {
+      edge = GDK_WINDOW_EDGE_NORTH_EAST;
+    } else if (g_strcmp0(edge_str, "bottomLeft") == 0 || g_strcmp0(edge_str, "bottom_left") == 0) {
+      edge = GDK_WINDOW_EDGE_SOUTH_WEST;
+    } else if (g_strcmp0(edge_str, "bottomRight") == 0 || g_strcmp0(edge_str, "bottom_right") == 0) {
+      edge = GDK_WINDOW_EDGE_SOUTH_EAST;
+    } else {
+      edge_valid = FALSE;
+    }
+
+    if (edge_valid && !gtk_window_is_maximized(window)) {
+      GdkSeat* seat = gdk_display_get_default_seat(gdk_display_get_default());
+      GdkDevice* pointer = seat != nullptr ? gdk_seat_get_pointer(seat) : nullptr;
+      gint root_x = 0;
+      gint root_y = 0;
+      if (pointer != nullptr) {
+        gdk_device_get_position(pointer, nullptr, &root_x, &root_y);
+      }
+      if (root_x == 0 && root_y == 0) {
+        root_x = g_last_button_x;
+        root_y = g_last_button_y;
+      }
+      guint button = g_last_button > 0 ? g_last_button : 1;
+      guint32 time = gtk_get_current_event_time();
+      if (time == 0) {
+        time = g_last_button_time > 0 ? g_last_button_time : GDK_CURRENT_TIME;
+      }
+      gtk_window_begin_resize_drag(window, edge, (gint)button, root_x, root_y, time);
+    }
     g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
     fl_method_call_respond(method_call, response, nullptr);
   } else {
