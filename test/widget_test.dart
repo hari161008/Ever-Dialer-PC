@@ -7,6 +7,7 @@ import 'package:ever_dialer_pc/services/bluetooth_service.dart';
 import 'package:ever_dialer_pc/services/sync_service.dart';
 import 'package:ever_dialer_pc/widgets/bluetooth_container.dart';
 import 'package:ever_dialer_pc/widgets/audio_status_card.dart';
+import 'package:ever_dialer_pc/widgets/window_header_actions.dart';
 
 void main() {
   testWidgets('EverDialerApp shows dashboard and opens Settings screen with unified Bluetooth Connection & Sync container', (WidgetTester tester) async {
@@ -1024,6 +1025,47 @@ void main() {
 
     mockService.dispose();
     mockSyncService.dispose();
+  });
+
+  testWidgets('WindowDragArea starts drag on move and correctly handles consecutive drags and double tap', (WidgetTester tester) async {
+    int dragCount = 0;
+    int doubleTapCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WindowDragArea(
+            onStartDrag: () => dragCount++,
+            onDoubleTap: () => doubleTapCount++,
+            child: const SizedBox(width: 300, height: 100),
+          ),
+        ),
+      ),
+    );
+
+    final target = find.byType(WindowDragArea);
+
+    // 1. Move past 3px threshold triggers drag
+    final gesture1 = await tester.startGesture(tester.getCenter(target));
+    expect(dragCount, 0);
+    await gesture1.moveBy(const Offset(10, 0));
+    expect(dragCount, 1);
+    await gesture1.up();
+
+    // 2. Immediate second drag without extra click triggers drag again cleanly
+    final gesture2 = await tester.startGesture(tester.getCenter(target));
+    expect(dragCount, 1);
+    await gesture2.moveBy(const Offset(10, 0));
+    expect(dragCount, 2);
+    expect(doubleTapCount, 0);
+    await gesture2.up();
+
+    // 3. Double-tap without moving triggers onDoubleTap
+    await tester.tap(target);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(target);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(doubleTapCount, 1);
   });
 }
 

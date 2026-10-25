@@ -361,9 +361,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                 onDoubleTap: () => _systemService.toggleMaximizeWindow(),
                 child: const SizedBox.expand(),
               ),
-              title: WindowDragArea(
-                onStartDrag: () => _systemService.startWindowDrag(),
-                onDoubleTap: () => _systemService.toggleMaximizeWindow(),
+              title: IgnorePointer(
                 child: Text(
                   'Ever Dialer PC',
                   style: theme.textTheme.titleLarge?.copyWith(
@@ -394,9 +392,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
               onDoubleTap: () => _systemService.toggleMaximizeWindow(),
               child: const SizedBox.expand(),
             ),
-            title: WindowDragArea(
-              onStartDrag: () => _systemService.startWindowDrag(),
-              onDoubleTap: () => _systemService.toggleMaximizeWindow(),
+            title: IgnorePointer(
               child: Text(
                 'Ever Dialer PC',
                 style: theme.textTheme.titleLarge?.copyWith(

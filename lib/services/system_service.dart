@@ -47,7 +47,12 @@ class SystemService extends ChangeNotifier {
     }
   }
 
+  int _lastDragCallTime = 0;
+
   Future<void> startWindowDrag() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastDragCallTime < 150) return;
+    _lastDragCallTime = now;
     try {
       if (Platform.isLinux) {
         await _channel.invokeMethod('startDrag');

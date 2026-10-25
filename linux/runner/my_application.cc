@@ -464,6 +464,16 @@ static gint g_last_button_x = 0;
 static gint g_last_button_y = 0;
 static guint g_last_button = 1;
 
+static void global_gdk_event_handler(GdkEvent* event, gpointer data) {
+  if (event != nullptr && (event->type == GDK_BUTTON_PRESS || event->type == GDK_2BUTTON_PRESS)) {
+    g_last_button = event->button.button;
+    g_last_button_time = event->button.time;
+    g_last_button_x = (gint)event->button.x_root;
+    g_last_button_y = (gint)event->button.y_root;
+  }
+  gtk_main_do_event(event);
+}
+
 static gboolean on_window_button_press_event(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
   if (event != nullptr) {
     g_last_button = event->button;
@@ -537,14 +547,8 @@ static void system_channel_method_call_cb(FlMethodChannel* channel, FlMethodCall
     if (time == 0) {
       time = g_last_button_time > 0 ? g_last_button_time : GDK_CURRENT_TIME;
     }
-    g_last_button_time = 0;
 
-    GdkWindow* gdk_win = gtk_widget_get_window(GTK_WIDGET(window));
-    if (pointer != nullptr && gdk_win != nullptr) {
-      gdk_window_begin_move_drag_for_device(gdk_win, pointer, (gint)button, root_x, root_y, time);
-    } else {
-      gtk_window_begin_move_drag(window, (gint)button, root_x, root_y, time);
-    }
+    gtk_window_begin_move_drag(window, (gint)button, root_x, root_y, time);
     g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
     fl_method_call_respond(method_call, response, nullptr);
   } else {
@@ -638,6 +642,7 @@ static void my_application_activate(GApplication* application) {
   g_signal_connect(window, "button-press-event", G_CALLBACK(on_window_button_press_event), nullptr);
   gtk_widget_add_events(GTK_WIDGET(view), GDK_BUTTON_PRESS_MASK);
   g_signal_connect(view, "button-press-event", G_CALLBACK(on_window_button_press_event), nullptr);
+  gdk_event_handler_set(global_gdk_event_handler, nullptr, nullptr);
 
   g_signal_connect(window, "delete-event", G_CALLBACK(window_delete_event_cb), nullptr);
 

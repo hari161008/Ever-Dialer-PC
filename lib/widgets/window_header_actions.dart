@@ -503,25 +503,45 @@ class WindowDragArea extends StatefulWidget {
 }
 
 class _WindowDragAreaState extends State<WindowDragArea> {
-  DateTime _lastClickTime = DateTime.fromMillisecondsSinceEpoch(0);
+  Offset? _downPos;
+  bool _hasStartedDrag = false;
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
+    return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onPointerDown: (event) {
-        if (event.buttons == 1) {
-          final now = DateTime.now();
-          if (now.difference(_lastClickTime).inMilliseconds < 300) {
-            _lastClickTime = DateTime.fromMillisecondsSinceEpoch(0);
-            widget.onDoubleTap?.call();
-          } else {
-            _lastClickTime = now;
-            widget.onStartDrag?.call();
-          }
-        }
+      onDoubleTap: widget.onDoubleTap,
+      onPanStart: (_) {
+        _hasStartedDrag = true;
+        widget.onStartDrag?.call();
       },
-      child: widget.child,
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (event) {
+          if (event.buttons == 1) {
+            _downPos = event.position;
+            _hasStartedDrag = false;
+          }
+        },
+        onPointerMove: (event) {
+          if (event.buttons == 1 && !_hasStartedDrag && _downPos != null) {
+            final distance = (event.position - _downPos!).distance;
+            if (distance > 3.0) {
+              _hasStartedDrag = true;
+              widget.onStartDrag?.call();
+            }
+          }
+        },
+        onPointerUp: (_) {
+          _downPos = null;
+          _hasStartedDrag = false;
+        },
+        onPointerCancel: (_) {
+          _downPos = null;
+          _hasStartedDrag = false;
+        },
+        child: widget.child,
+      ),
     );
   }
 }

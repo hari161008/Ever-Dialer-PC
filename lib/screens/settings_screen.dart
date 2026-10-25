@@ -203,9 +203,7 @@ class SettingsScreen extends StatelessWidget {
           onDoubleTap: () => systemService?.toggleMaximizeWindow(),
           child: const SizedBox.expand(),
         ),
-        title: WindowDragArea(
-          onStartDrag: () => systemService?.startWindowDrag(),
-          onDoubleTap: () => systemService?.toggleMaximizeWindow(),
+        title: IgnorePointer(
           child: Text(
             'Settings',
             style: theme.textTheme.titleLarge?.copyWith(
