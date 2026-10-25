@@ -1,18 +1,22 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/appearance_preferences.dart';
 import '../services/sync_service.dart';
 import 'smooth_contact_avatar.dart';
 
 class MobileLandscapeLayout extends StatefulWidget {
   final PcSyncService syncService;
   final VoidCallback onOpenSettings;
+  final AppearancePreferences? appearance;
 
   const MobileLandscapeLayout({
     super.key,
     required this.syncService,
     required this.onOpenSettings,
+    this.appearance,
   });
 
   @override
@@ -35,6 +39,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   String _selectedSmsCategory = 'all'; // all, favourites, starred, contacts, unknown, otp
   String? _selectedSmsThreadId;
   final TextEditingController _smsInputController = TextEditingController();
+  bool _isNewMessageActive = false;
+  String _newMessageSearchQuery = '';
+  final TextEditingController _newMessageSearchController = TextEditingController();
 
   static final RegExp _otpRegex = RegExp(
     r'\b(otp|passcode|one[- ]time (?:password|passcode|code)|(?:verification|authentication|auth|security|secret|login|access|confirmation)[- ](?:code|pin|password)|your\s+(?:\w+\s+)?code\s+is|is\s+your\s+(?:\w+\s+)?(?:code|pin)|\d{4,8}\s+is\s+your|use\s+code\s+\d{4,8}|enter\s+(?:this\s+)?otp)\b|(?:\b(?:code|pin|otp)\s*[:=]\s*\d{4,8}\b)',
@@ -45,8 +52,29 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   String _notesSearchQuery = '';
 
   @override
+  void initState() {
+    super.initState();
+    widget.appearance?.addListener(_onAppearanceChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant MobileLandscapeLayout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.appearance != widget.appearance) {
+      oldWidget.appearance?.removeListener(_onAppearanceChanged);
+      widget.appearance?.addListener(_onAppearanceChanged);
+    }
+  }
+
+  void _onAppearanceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    widget.appearance?.removeListener(_onAppearanceChanged);
     _smsInputController.dispose();
+    _newMessageSearchController.dispose();
     super.dispose();
   }
 
@@ -528,19 +556,25 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     color: colorScheme.surface,
                     child: Builder(
                       builder: (context) {
+                        Widget pageWidget;
                         switch (activeIndex) {
                           case 0:
-                            return _buildFavouritesView();
+                            pageWidget = _buildFavouritesView();
+                            break;
                           case 1:
-                            return _buildCallLogsView();
+                            pageWidget = _buildCallLogsView();
+                            break;
                           case 2:
-                            return _buildContactsView();
+                            pageWidget = _buildContactsView();
+                            break;
                           case 3:
-                            return _buildSmsView();
+                            pageWidget = _buildSmsView();
+                            break;
                           case 4:
-                            return _buildNotesView();
+                            pageWidget = _buildNotesView();
+                            break;
                           default:
-                            return Center(
+                            pageWidget = Center(
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -562,7 +596,29 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                                 ],
                               ),
                             );
+                            break;
                         }
+
+                        final blur = widget.appearance?.backgroundBlur ?? 0.0;
+
+                        Widget content = pageWidget;
+                        if (blur > 0.0) {
+                          content = Stack(
+                            children: [
+                              Positioned.fill(
+                                child: ClipRect(
+                                  child: BackdropFilter(
+                                    filter: ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                                    child: const SizedBox.expand(),
+                                  ),
+                                ),
+                              ),
+                              content,
+                            ],
+                          );
+                        }
+
+                        return content;
                       },
                     ),
                   ),
@@ -727,659 +783,70 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   }
 
   void _showDialDialog(BuildContext context) {
-    showDialog(
+    showGeneralDialog(
       context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dialpad',
       barrierColor: Colors.black.withValues(alpha: 0.55),
-      builder: (dialogContext) {
-        String enteredNumber = '';
-        int cursorPosition = 0;
-        String searchQuery = '';
-        final focusNode = FocusNode();
-        final searchCtrl = TextEditingController();
-
-        String convertNameToT9(String name) {
-          final buffer = StringBuffer();
-          for (final rune in name.toUpperCase().runes) {
-            final char = String.fromCharCode(rune);
-            switch (char) {
-              case 'A': case 'B': case 'C': buffer.write('2'); break;
-              case 'D': case 'E': case 'F': buffer.write('3'); break;
-              case 'G': case 'H': case 'I': buffer.write('4'); break;
-              case 'J': case 'K': case 'L': buffer.write('5'); break;
-              case 'M': case 'N': case 'O': buffer.write('6'); break;
-              case 'P': case 'Q': case 'R': case 'S': buffer.write('7'); break;
-              case 'T': case 'U': case 'V': buffer.write('8'); break;
-              case 'W': case 'X': case 'Y': case 'Z': buffer.write('9'); break;
-              default: buffer.write('0'); break;
-            }
-          }
-          return buffer.toString();
-        }
-
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final theme = Theme.of(context);
-            final colorScheme = theme.colorScheme;
-
-            void insertAtCursor(String text) {
-              setDialogState(() {
-                final pos = cursorPosition.clamp(0, enteredNumber.length);
-                enteredNumber = enteredNumber.substring(0, pos) + text + enteredNumber.substring(pos);
-                cursorPosition = pos + text.length;
-              });
-            }
-
-            void deleteAtCursor() {
-              if (enteredNumber.isNotEmpty) {
-                setDialogState(() {
-                  final pos = cursorPosition.clamp(0, enteredNumber.length);
-                  if (pos > 0) {
-                    enteredNumber = enteredNumber.substring(0, pos - 1) + enteredNumber.substring(pos);
-                    cursorPosition = pos - 1;
-                  }
-                });
-              }
-            }
-
-            void clearAll() {
-              setDialogState(() {
-                enteredNumber = '';
-                cursorPosition = 0;
-              });
-            }
-
-            // Real-time contact matching (T9 + digits + search query)
-            final q = searchQuery.trim().toLowerCase();
-            final numDigits = enteredNumber.replaceAll(RegExp(r'[^\d+*#]'), '');
-            List<SyncedContact> matchedContacts = [];
-            if (q.isNotEmpty) {
-              matchedContacts = widget.syncService.contacts.where((c) {
-                return c.name.toLowerCase().contains(q) ||
-                    c.phone.replaceAll(RegExp(r'[^\d+]'), '').contains(q);
-              }).take(3).toList();
-            } else if (numDigits.isNotEmpty) {
-              matchedContacts = widget.syncService.contacts.where((c) {
-                final cleanPhone = c.phone.replaceAll(RegExp(r'[^\d+]'), '');
-                final matchesPhone = cleanPhone.contains(numDigits);
-                final t9Name = convertNameToT9(c.name);
-                final matchesT9 = t9Name.contains(numDigits);
-                return matchesPhone || matchesT9;
-              }).take(3).toList();
-            }
-
-            double numFontSize = 34;
-            if (enteredNumber.length > 8) numFontSize = 28;
-            if (enteredNumber.length > 12) numFontSize = 22;
-            if (enteredNumber.length > 16) numFontSize = 18;
-
-            return Focus(
-              focusNode: focusNode,
-              autofocus: true,
-              onKeyEvent: (node, event) {
-                if (event is KeyDownEvent) {
-                  if (event.logicalKey == LogicalKeyboardKey.backspace) {
-                    deleteAtCursor();
-                    return KeyEventResult.handled;
-                  } else if (event.logicalKey == LogicalKeyboardKey.enter ||
-                      event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-                    if (enteredNumber.isNotEmpty) {
-                      Navigator.pop(dialogContext);
-                      _initiateCall(enteredNumber);
-                    } else {
-                      final latest = widget.syncService.callLogs.firstOrNull;
-                      if (latest != null && latest.number.isNotEmpty) {
-                        setDialogState(() {
-                          enteredNumber = latest.number;
-                          cursorPosition = enteredNumber.length;
-                        });
-                      }
-                    }
-                    return KeyEventResult.handled;
-                  } else if (event.logicalKey == LogicalKeyboardKey.escape) {
-                    Navigator.pop(dialogContext);
-                    return KeyEventResult.handled;
-                  } else {
-                    final keyLabel = event.logicalKey.keyLabel;
-                    if (RegExp(r'^[0-9*#+]$').hasMatch(keyLabel)) {
-                      insertAtCursor(keyLabel);
-                      return KeyEventResult.handled;
-                    }
-                  }
-                }
-                return KeyEventResult.ignored;
-              },
-              child: Dialog(
-                backgroundColor: Colors.transparent,
-                insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 400),
-                  child: Material(
-                    color: colorScheme.surfaceContainerHigh,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(32),
-                    ),
-                    elevation: 12,
-                    clipBehavior: Clip.antiAlias,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // ── Top Search Bar ──────────────────────────────────────────
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                                    borderRadius: BorderRadius.circular(24),
-                                  ),
-                                  child: TextField(
-                                    controller: searchCtrl,
-                                    decoration: InputDecoration(
-                                      hintText: 'Search contacts...',
-                                      hintStyle: TextStyle(
-                                        fontSize: 14,
-                                        color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-                                      ),
-                                      prefixIcon: Icon(
-                                        Icons.search,
-                                        size: 20,
-                                        color: colorScheme.onSurfaceVariant,
-                                      ),
-                                      suffixIcon: searchQuery.isNotEmpty
-                                          ? IconButton(
-                                              icon: const Icon(Icons.clear, size: 18),
-                                              onPressed: () {
-                                                searchCtrl.clear();
-                                                setDialogState(() {
-                                                  searchQuery = '';
-                                                });
-                                              },
-                                            )
-                                          : null,
-                                      border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                                    ),
-                                    onChanged: (val) {
-                                      setDialogState(() {
-                                        searchQuery = val;
-                                      });
-                                    },
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                onPressed: () => Navigator.pop(dialogContext),
-                                icon: const Icon(Icons.close),
-                                style: IconButton.styleFrom(
-                                  backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                                  foregroundColor: colorScheme.onSurfaceVariant,
-                                  shape: const CircleBorder(),
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          // ── Matching contacts / recent preview ──────────────────────
-                          if (matchedContacts.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Container(
-                              constraints: const BoxConstraints(maxHeight: 125),
-                              child: ListView.separated(
-                                shrinkWrap: true,
-                                padding: EdgeInsets.zero,
-                                itemCount: matchedContacts.length,
-                                separatorBuilder: (context, index) => const SizedBox(height: 4),
-                                itemBuilder: (context, idx) {
-                                  final contact = matchedContacts[idx];
-                                  return InkWell(
-                                    borderRadius: BorderRadius.circular(14),
-                                    onTap: () {
-                                      setDialogState(() {
-                                        enteredNumber = contact.phone;
-                                        cursorPosition = enteredNumber.length;
-                                      });
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: colorScheme.surfaceContainerLow,
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          SmoothContactAvatar(
-                                            radius: 16,
-                                            photoBase64: contact.photoBase64,
-                                            initials: contact.initials,
-                                            backgroundColor: colorScheme.primaryContainer,
-                                            foregroundColor: colorScheme.onPrimaryContainer,
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  contact.name,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 13,
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                                Text(
-                                                  contact.phone,
-                                                  style: TextStyle(
-                                                    color: colorScheme.onSurfaceVariant,
-                                                    fontSize: 11,
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(Icons.call, size: 18),
-                                            color: Colors.green.shade600,
-                                            onPressed: () {
-                                              Navigator.pop(dialogContext);
-                                              _initiateCall(contact.phone);
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-
-                          // ── Number Display Area ─────────────────────────────────────
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            alignment: Alignment.center,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  height: 44,
-                                  child: Center(
-                                    child: enteredNumber.isEmpty
-                                        ? Text(
-                                            'Dial a number',
-                                            style: theme.textTheme.titleMedium?.copyWith(
-                                              color: colorScheme.outline.withValues(alpha: 0.6),
-                                            ),
-                                          )
-                                        : RichText(
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            text: TextSpan(
-                                              children: [
-                                                TextSpan(
-                                                  text: enteredNumber.substring(0, cursorPosition.clamp(0, enteredNumber.length)),
-                                                  style: TextStyle(
-                                                    fontSize: numFontSize,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: colorScheme.onSurface,
-                                                    letterSpacing: 1.5,
-                                                  ),
-                                                ),
-                                                WidgetSpan(
-                                                  alignment: PlaceholderAlignment.middle,
-                                                  child: Container(
-                                                    width: 2.5,
-                                                    height: numFontSize * 0.9,
-                                                    margin: const EdgeInsets.symmetric(horizontal: 1),
-                                                    decoration: BoxDecoration(
-                                                      color: colorScheme.primary,
-                                                      borderRadius: BorderRadius.circular(1),
-                                                    ),
-                                                  ),
-                                                ),
-                                                TextSpan(
-                                                  text: enteredNumber.substring(cursorPosition.clamp(0, enteredNumber.length)),
-                                                  style: TextStyle(
-                                                    fontSize: numFontSize,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: colorScheme.onSurface,
-                                                    letterSpacing: 1.5,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                  ),
-                                ),
-
-                                // Quick action chips when number is present
-                                if (enteredNumber.isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      ActionChip(
-                                        avatar: const Icon(Icons.person_add_outlined, size: 16),
-                                        label: const Text('Add Contact', style: TextStyle(fontSize: 12)),
-                                        padding: EdgeInsets.zero,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                        onPressed: () {
-                                          _showAddContactDialog(context, initialPhone: enteredNumber);
-                                        },
-                                      ),
-                                      const SizedBox(width: 8),
-                                      ActionChip(
-                                        avatar: const Icon(Icons.copy_outlined, size: 16),
-                                        label: const Text('Copy', style: TextStyle(fontSize: 12)),
-                                        padding: EdgeInsets.zero,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                        onPressed: () {
-                                          Clipboard.setData(ClipboardData(text: enteredNumber));
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                              content: Text('Number copied to clipboard'),
-                                              duration: Duration(seconds: 2),
-                                              behavior: SnackBarBehavior.floating,
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                      const SizedBox(width: 8),
-                                      ActionChip(
-                                        avatar: const Icon(Icons.chat_bubble_outline, size: 16),
-                                        label: const Text('SMS', style: TextStyle(fontSize: 12)),
-                                        padding: EdgeInsets.zero,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                        onPressed: () {
-                                          final num = enteredNumber.trim();
-                                          Navigator.pop(dialogContext);
-                                          _openSmsForNumber(num);
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-
-                          const SizedBox(height: 10),
-
-                          // ── Dialpad Keys Grid (Mobile M3 Parity) ─────────────────────
-                          Container(
-                            decoration: BoxDecoration(
-                              color: colorScheme.surfaceContainerLow,
-                              borderRadius: BorderRadius.circular(28),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            child: _buildDialpadGridM3(
-                              context,
-                              onDigit: insertAtCursor,
-                              onPlus: () => insertAtCursor('+'),
-                            ),
-                          ),
-
-                          const SizedBox(height: 14),
-
-                          // ── Bottom Action Row (Add Contact | Call | Backspace) ──────
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                // Add contact icon button
-                                Material(
-                                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-                                  borderRadius: BorderRadius.circular(22),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: InkWell(
-                                    onTap: () {
-                                      _showAddContactDialog(context, initialPhone: enteredNumber);
-                                    },
-                                    child: SizedBox(
-                                      width: 62,
-                                      height: 56,
-                                      child: Icon(
-                                        Icons.person_add_rounded,
-                                        size: 24,
-                                        color: colorScheme.onSurface,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-
-                                // Centered Prominent Call Button
-                                Material(
-                                  color: const Color(0xFF34A853),
-                                  borderRadius: BorderRadius.circular(26),
-                                  elevation: 3,
-                                  clipBehavior: Clip.antiAlias,
-                                  child: InkWell(
-                                    onTap: () {
-                                      if (enteredNumber.trim().isNotEmpty) {
-                                        final num = enteredNumber.trim();
-                                        Navigator.pop(dialogContext);
-                                        _initiateCall(num);
-                                      } else {
-                                        // Recall latest call log entry
-                                        final latest = widget.syncService.callLogs.firstOrNull;
-                                        if (latest != null && latest.number.isNotEmpty) {
-                                          setDialogState(() {
-                                            enteredNumber = latest.number;
-                                            cursorPosition = enteredNumber.length;
-                                          });
-                                        }
-                                      }
-                                    },
-                                    child: const SizedBox(
-                                      width: 96,
-                                      height: 56,
-                                      child: Icon(
-                                        Icons.call,
-                                        size: 28,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-
-                                // Backspace button with clear on long-press
-                                Material(
-                                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-                                  borderRadius: BorderRadius.circular(22),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: InkWell(
-                                    onTap: deleteAtCursor,
-                                    onLongPress: clearAll,
-                                    child: SizedBox(
-                                      width: 62,
-                                      height: 56,
-                                      child: Icon(
-                                        Icons.backspace_outlined,
-                                        size: 22,
-                                        color: enteredNumber.isNotEmpty
-                                            ? colorScheme.onSurface
-                                            : colorScheme.outline.withValues(alpha: 0.4),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
+      transitionDuration: const Duration(milliseconds: 380),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: _MobileDialpadSheet(
+            syncService: widget.syncService,
+            onCall: (number) {
+              Navigator.pop(dialogContext);
+              _initiateCall(number);
+            },
+            onAddContact: (phone) {
+              _showAddContactDialog(context, initialPhone: phone);
+            },
+            onOpenSms: (phone) {
+              Navigator.pop(dialogContext);
+              _openSmsForNumber(phone);
+            },
+            onDismiss: () => Navigator.pop(dialogContext),
+          ),
         );
       },
-    );
-  }
-
-  Widget _buildDialpadGridM3(
-    BuildContext context, {
-    required void Function(String) onDigit,
-    required VoidCallback onPlus,
-  }) {
-    const keys = [
-      ['1', ' '], ['2', 'ABC'], ['3', 'DEF'],
-      ['4', 'GHI'], ['5', 'JKL'], ['6', 'MNO'],
-      ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ'],
-      ['*', ' '], ['0', '+'], ['#', ' '],
-    ];
-
-    return Column(
-      children: [
-        for (int r = 0; r < 4; r++)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                for (int c = 0; c < 3; c++)
-                  _buildDialKeyM3(
-                    context,
-                    main: keys[r * 3 + c][0],
-                    sub: keys[r * 3 + c][1],
-                    onDigit: onDigit,
-                    onLongPress: keys[r * 3 + c][0] == '0' ? onPlus : null,
-                  ),
-              ],
-            ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curve = CurvedAnimation(
+          parent: animation,
+          curve: Curves.fastOutSlowIn,
+          reverseCurve: Curves.fastOutSlowIn,
+        );
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.0, 1.0),
+            end: Offset.zero,
+          ).animate(curve),
+          child: FadeTransition(
+            opacity: curve,
+            child: child,
           ),
-      ],
-    );
-  }
-
-  Widget _buildDialKeyM3(
-    BuildContext context, {
-    required String main,
-    required String sub,
-    required void Function(String) onDigit,
-    VoidCallback? onLongPress,
-  }) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isStar = main == '*';
-    final isPlus = sub.trim() == '+';
-
-    return Material(
-      color: colorScheme.primaryContainer,
-      borderRadius: BorderRadius.circular(24),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => onDigit(main),
-        onLongPress: onLongPress,
-        splashColor: colorScheme.primary.withValues(alpha: 0.25),
-        highlightColor: colorScheme.primary.withValues(alpha: 0.15),
-        child: SizedBox(
-          width: 86,
-          height: 54,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                main,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontSize: isStar ? 26 : 21,
-                  fontWeight: FontWeight.w600,
-                  color: colorScheme.onPrimaryContainer,
-                  height: 1.1,
-                ),
-              ),
-              if (sub.trim().isNotEmpty)
-                Text(
-                  sub,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontSize: isPlus ? 12 : 9.5,
-                    fontWeight: isPlus ? FontWeight.bold : FontWeight.w500,
-                    letterSpacing: isPlus ? 0 : 1.2,
-                    color: colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
-                    height: 1.0,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   void _showNewMessageDialog(BuildContext context, {String? initialNumber}) {
-    final phoneCtrl = TextEditingController(text: initialNumber ?? '');
-    final msgCtrl = TextEditingController();
+    setState(() {
+      _isNewMessageActive = true;
+      _selectedIndex = 3;
+      _newMessageSearchQuery = initialNumber ?? '';
+      _newMessageSearchController.text = initialNumber ?? '';
+    });
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('New Message'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: phoneCtrl,
-                keyboardType: TextInputType.phone,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number',
-                  prefixIcon: Icon(Icons.phone),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: msgCtrl,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Message',
-                  prefixIcon: Icon(Icons.chat_bubble_outline),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton.icon(
-              icon: const Icon(Icons.send, size: 18),
-              label: const Text('Send'),
-              onPressed: () {
-                final phone = phoneCtrl.text.trim();
-                final text = msgCtrl.text.trim();
-                if (phone.isNotEmpty && text.isNotEmpty) {
-                  Navigator.pop(context);
-                  widget.syncService.sendSmsToNumber(phone, text);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Sending SMS to $phone...'),
-                      duration: const Duration(seconds: 2),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              },
-            ),
-          ],
-        );
-      },
+  void _openChatForNumber(String number, String? contactName) {
+    final thread = widget.syncService.getOrCreateThreadForNumber(
+      number,
+      contactName: contactName,
     );
+    setState(() {
+      _selectedSmsThreadId = thread.id;
+      _isNewMessageActive = false;
+    });
   }
 
   Widget _buildRailItem({
@@ -3234,6 +2701,238 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     );
   }
 
+  Widget _buildNewMessageView({bool isCompact = false}) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final q = _newMessageSearchQuery.trim().toLowerCase();
+    final trimmedNumber = _newMessageSearchQuery.trim();
+    final hasDigits = RegExp(r'\d').hasMatch(trimmedNumber);
+
+    final filteredContacts = widget.syncService.contacts.where((c) {
+      if (q.isEmpty) return true;
+      final matchName = c.name.toLowerCase().contains(q);
+      final matchPhone = c.phone.replaceAll(RegExp(r'\D'), '').contains(q);
+      return matchName || matchPhone;
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Top App Bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
+          child: Row(
+            children: [
+              IconButton(
+                icon: Icon(Icons.arrow_back, color: colorScheme.onSurface),
+                tooltip: 'Back',
+                onPressed: () {
+                  setState(() {
+                    _isNewMessageActive = false;
+                  });
+                },
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  'New Message',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSurface,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Search Input Field
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          child: TextField(
+            controller: _newMessageSearchController,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Type a name or phone number',
+              hintStyle: TextStyle(
+                fontSize: 14,
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+              ),
+              prefixIcon: Icon(Icons.search, color: colorScheme.primary),
+              suffixIcon: _newMessageSearchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(Icons.clear, color: colorScheme.onSurfaceVariant),
+                      onPressed: () {
+                        _newMessageSearchController.clear();
+                        setState(() => _newMessageSearchQuery = '');
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: colorScheme.surfaceContainerHigh.withValues(alpha: 0.4),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(24),
+                borderSide: BorderSide(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(24),
+                borderSide: BorderSide(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(24),
+                borderSide: BorderSide(
+                  color: colorScheme.primary,
+                  width: 1.5,
+                ),
+              ),
+            ),
+            onChanged: (val) {
+              setState(() => _newMessageSearchQuery = val);
+            },
+          ),
+        ),
+
+        // Direct send option if digits are entered
+        if (hasDigits) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Material(
+              color: colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => _openChatForNumber(trimmedNumber, null),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: colorScheme.surface,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.send_rounded,
+                          size: 18,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Send to $trimmedNumber',
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onPrimaryContainer,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              'Start new SMS conversation',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onPrimaryContainer.withValues(alpha: 0.8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+
+        // Contacts List
+        Expanded(
+          child: filteredContacts.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Text(
+                      q.isNotEmpty
+                          ? "No contacts match '$q'"
+                          : "No contacts available",
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  itemCount: filteredContacts.length,
+                  itemBuilder: (context, index) {
+                    final contact = filteredContacts[index];
+                    return Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(14),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => _openChatForNumber(contact.phone, contact.name),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Row(
+                            children: [
+                              SmoothContactAvatar(
+                                radius: 20,
+                                photoBase64: contact.photoBase64,
+                                initials: contact.initials,
+                                backgroundColor: colorScheme.primaryContainer,
+                                foregroundColor: colorScheme.onPrimaryContainer,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      contact.name,
+                                      style: theme.textTheme.bodyLarge?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: colorScheme.onSurface,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (contact.phone.isNotEmpty)
+                                      Text(
+                                        contact.phone,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: colorScheme.onSurfaceVariant,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // 4. SMS View
   // ═════════════════════════════════════════════════════════════════════════
@@ -3243,17 +2942,37 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     final threads = widget.syncService.smsThreads;
 
     if (threads.isEmpty) {
+      if (_isNewMessageActive) {
+        return _buildNewMessageView(isCompact: true);
+      }
       return Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Messages',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSurface,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Messages',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.add_comment_rounded, color: colorScheme.onSurface),
+                  tooltip: 'New Message',
+                  onPressed: () {
+                    setState(() {
+                      _isNewMessageActive = true;
+                      _newMessageSearchQuery = '';
+                      _newMessageSearchController.clear();
+                    });
+                  },
+                ),
+              ],
             ),
             const SizedBox(height: 32),
             Expanded(
@@ -3469,7 +3188,13 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   IconButton(
                     icon: Icon(Icons.add_comment_rounded, color: colorScheme.onSurface),
                     tooltip: 'New Message',
-                    onPressed: () => _showNewMessageDialog(context),
+                    onPressed: () {
+                      setState(() {
+                        _isNewMessageActive = true;
+                        _newMessageSearchQuery = '';
+                        _newMessageSearchController.clear();
+                      });
+                    },
                   ),
                 ],
               ),
@@ -3530,10 +3255,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         );
 
         if (isCompact) {
-          // On small screen, show full width thread list (SMS logs list) when no chat is open
+          // On small screen, show full width New Message view if active, or thread list when no chat is open
           return Row(
             children: [
-              Expanded(child: threadListContent),
+              Expanded(
+                child: _isNewMessageActive
+                    ? _buildNewMessageView(isCompact: true)
+                    : threadListContent,
+              ),
             ],
           );
         }
@@ -3543,7 +3272,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           children: [
             SizedBox(
               width: 340,
-              child: threadListContent,
+              child: _isNewMessageActive
+                  ? _buildNewMessageView(isCompact: false)
+                  : threadListContent,
             ),
             VerticalDivider(
               width: 1,
@@ -5568,3 +5299,939 @@ class _SimCardNotchClipper extends CustomClipper<Path> {
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// Mobile Dialpad Bottom Sheet & Animations
+// ═════════════════════════════════════════════════════════════════════════
+
+class _DialDigitItem {
+  final int id;
+  final String char;
+  const _DialDigitItem(this.id, this.char);
+}
+
+class _AnimatedDialDigit extends StatefulWidget {
+  final String char;
+  final double fontSize;
+  final Color color;
+
+  const _AnimatedDialDigit({
+    super.key,
+    required this.char,
+    required this.fontSize,
+    required this.color,
+  });
+
+  @override
+  State<_AnimatedDialDigit> createState() => _AnimatedDialDigitState();
+}
+
+class _AnimatedDialDigitState extends State<_AnimatedDialDigit>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _offsetYAnim;
+  late final Animation<double> _alphaAnim;
+  late final Animation<double> _scaleAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+    _offsetYAnim = Tween<double>(begin: 28.0, end: 0.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+    _alphaAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+    _scaleAnim = Tween<double>(begin: 0.7, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, _offsetYAnim.value),
+          child: Transform.scale(
+            scale: _scaleAnim.value,
+            child: Opacity(
+              opacity: _alphaAnim.value,
+              child: Text(
+                widget.char,
+                style: TextStyle(
+                  fontSize: widget.fontSize,
+                  fontWeight: FontWeight.w400,
+                  color: widget.color,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AnimatedBackspaceButton extends StatelessWidget {
+  final bool visible;
+  final VoidCallback onBackspace;
+  final VoidCallback onClear;
+  final ColorScheme colorScheme;
+
+  const _AnimatedBackspaceButton({
+    required this.visible,
+    required this.onBackspace,
+    required this.onClear,
+    required this.colorScheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: visible ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.fastOutSlowIn,
+      child: AnimatedScale(
+        scale: visible ? 1.0 : 0.7,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.fastOutSlowIn,
+        child: Material(
+          color: Colors.transparent,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: visible ? onBackspace : null,
+            onLongPress: visible ? onClear : null,
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Icon(
+                Icons.backspace_outlined,
+                size: 24,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DialPadKeyWidget extends StatefulWidget {
+  final String main;
+  final String sub;
+  final void Function(String) onDigit;
+  final VoidCallback? onLongPress;
+
+  const _DialPadKeyWidget({
+    required this.main,
+    required this.sub,
+    required this.onDigit,
+    this.onLongPress,
+  });
+
+  @override
+  State<_DialPadKeyWidget> createState() => _DialPadKeyWidgetState();
+}
+
+class _DialPadKeyWidgetState extends State<_DialPadKeyWidget>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  bool _isPressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 160),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _triggerTapPulse() {
+    _controller.forward().then((_) {
+      if (!_isPressed && mounted) {
+        _controller.reverse();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isStar = widget.main == '*';
+    final isPlus = widget.sub.trim() == '+';
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final progress = _controller.value;
+        final cornerRadius = ui.lerpDouble(24.0, 10.0, progress)!;
+        final scale = ui.lerpDouble(1.0, 0.88, progress)!;
+        final bgColor = Color.lerp(
+          colorScheme.primaryContainer,
+          colorScheme.primary,
+          progress,
+        )!;
+        final textColor = Color.lerp(
+          colorScheme.onPrimaryContainer,
+          colorScheme.onPrimary,
+          progress,
+        )!;
+        final subTextColor = Color.lerp(
+          colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
+          colorScheme.onPrimary.withValues(alpha: 0.85),
+          progress,
+        )!;
+
+        return Transform.scale(
+          scale: scale,
+          child: Material(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(cornerRadius),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTapDown: (_) {
+                _isPressed = true;
+                _controller.forward();
+              },
+              onTapUp: (_) {
+                _isPressed = false;
+                _triggerTapPulse();
+              },
+              onTapCancel: () {
+                _isPressed = false;
+                _controller.reverse();
+              },
+              onTap: () => widget.onDigit(widget.main),
+              onLongPress: widget.onLongPress,
+              child: SizedBox(
+                width: 90,
+                height: 56,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      widget.main,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontSize: isStar ? 26 : 21,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                        height: 1.1,
+                      ),
+                    ),
+                    if (widget.sub.trim().isNotEmpty)
+                      Text(
+                        widget.sub,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontSize: isPlus ? 12 : 9.5,
+                          fontWeight: isPlus ? FontWeight.bold : FontWeight.w500,
+                          letterSpacing: isPlus ? 0 : 1.2,
+                          color: subTextColor,
+                          height: 1.0,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DialerActionExpressive extends StatefulWidget {
+  final VoidCallback onClick;
+  final IconData icon;
+  final Color containerColor;
+  final Color? contentColor;
+  final double width;
+  final double height;
+  final bool isCallButton;
+
+  const _DialerActionExpressive({
+    required this.onClick,
+    required this.icon,
+    required this.containerColor,
+    this.contentColor,
+    required this.width,
+    required this.height,
+    this.isCallButton = false,
+  });
+
+  @override
+  State<_DialerActionExpressive> createState() => _DialerActionExpressiveState();
+}
+
+class _DialerActionExpressiveState extends State<_DialerActionExpressive>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  bool _isPressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 160),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _triggerTapPulse() {
+    _controller.forward().then((_) {
+      if (!_isPressed && mounted) {
+        _controller.reverse();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final progress = _controller.value;
+        final baseRadius = widget.isCallButton ? 26.0 : 24.0;
+        final pressedRadius = widget.isCallButton ? 14.0 : 10.0;
+        final cornerRadius = ui.lerpDouble(baseRadius, pressedRadius, progress)!;
+        final scale = ui.lerpDouble(1.0, 0.88, progress)!;
+        final bgColor = Color.lerp(
+          widget.containerColor,
+          widget.isCallButton
+              ? widget.containerColor.withValues(alpha: 0.85)
+              : colorScheme.primary,
+          progress,
+        )!;
+        final contentColor = widget.contentColor ?? colorScheme.onSurface;
+
+        return Transform.scale(
+          scale: scale,
+          child: Material(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(cornerRadius),
+            clipBehavior: Clip.antiAlias,
+            elevation: widget.isCallButton ? 3 : 0,
+            child: InkWell(
+              onTapDown: (_) {
+                _isPressed = true;
+                _controller.forward();
+              },
+              onTapUp: (_) {
+                _isPressed = false;
+                _triggerTapPulse();
+              },
+              onTapCancel: () {
+                _isPressed = false;
+                _controller.reverse();
+              },
+              onTap: widget.onClick,
+              child: SizedBox(
+                width: widget.width,
+                height: widget.height,
+                child: Center(
+                  child: Icon(
+                    widget.icon,
+                    size: widget.isCallButton ? 28 : 22,
+                    color: contentColor,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MobileDialpadSheet extends StatefulWidget {
+  final PcSyncService syncService;
+  final void Function(String) onCall;
+  final void Function(String) onAddContact;
+  final void Function(String) onOpenSms;
+  final VoidCallback onDismiss;
+
+  const _MobileDialpadSheet({
+    required this.syncService,
+    required this.onCall,
+    required this.onAddContact,
+    required this.onOpenSms,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_MobileDialpadSheet> createState() => _MobileDialpadSheetState();
+}
+
+class _MobileDialpadSheetState extends State<_MobileDialpadSheet>
+    with SingleTickerProviderStateMixin {
+  String _enteredNumber = '';
+  int _cursorPosition = 0;
+  String _searchQuery = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+
+  int _idCounter = 0;
+  final List<_DialDigitItem> _stableDigits = [];
+  late final AnimationController _cursorBlinkController;
+
+  static const _keys = [
+    ['1', ' '], ['2', 'ABC'], ['3', 'DEF'],
+    ['4', 'GHI'], ['5', 'JKL'], ['6', 'MNO'],
+    ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ'],
+    ['*', ' '], ['0', '+'], ['#', ' '],
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _cursorBlinkController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _focusNode.dispose();
+    _cursorBlinkController.dispose();
+    super.dispose();
+  }
+
+  String _convertNameToT9(String name) {
+    final buffer = StringBuffer();
+    for (final rune in name.toUpperCase().runes) {
+      final char = String.fromCharCode(rune);
+      switch (char) {
+        case 'A': case 'B': case 'C': buffer.write('2'); break;
+        case 'D': case 'E': case 'F': buffer.write('3'); break;
+        case 'G': case 'H': case 'I': buffer.write('4'); break;
+        case 'J': case 'K': case 'L': buffer.write('5'); break;
+        case 'M': case 'N': case 'O': buffer.write('6'); break;
+        case 'P': case 'Q': case 'R': case 'S': buffer.write('7'); break;
+        case 'T': case 'U': case 'V': buffer.write('8'); break;
+        case 'W': case 'X': case 'Y': case 'Z': buffer.write('9'); break;
+        default: buffer.write('0'); break;
+      }
+    }
+    return buffer.toString();
+  }
+
+  void _insertAtCursor(String text) {
+    setState(() {
+      final at = _cursorPosition.clamp(0, _enteredNumber.length);
+      _enteredNumber = _enteredNumber.substring(0, at) + text + _enteredNumber.substring(at);
+      for (int i = 0; i < text.length; i++) {
+        _stableDigits.insert(at + i, _DialDigitItem(_idCounter++, text[i]));
+      }
+      _cursorPosition = at + text.length;
+    });
+  }
+
+  void _deleteAtCursor() {
+    if (_enteredNumber.isNotEmpty && _cursorPosition > 0) {
+      setState(() {
+        final at = _cursorPosition.clamp(0, _enteredNumber.length);
+        _enteredNumber = _enteredNumber.substring(0, at - 1) + _enteredNumber.substring(at);
+        if (at - 1 < _stableDigits.length) {
+          _stableDigits.removeAt(at - 1);
+        }
+        _cursorPosition = at - 1;
+      });
+    }
+  }
+
+  void _clearAll() {
+    setState(() {
+      _enteredNumber = '';
+      _cursorPosition = 0;
+      _stableDigits.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    // Real-time contact matching (T9 + digits + search query)
+    final q = _searchQuery.trim().toLowerCase();
+    final numDigits = _enteredNumber.replaceAll(RegExp(r'[^\d+*#]'), '');
+    List<SyncedContact> matchedContacts = [];
+    if (q.isNotEmpty) {
+      matchedContacts = widget.syncService.contacts.where((c) {
+        return c.name.toLowerCase().contains(q) ||
+            c.phone.replaceAll(RegExp(r'[^\d+]'), '').contains(q);
+      }).take(3).toList();
+    } else if (numDigits.isNotEmpty) {
+      matchedContacts = widget.syncService.contacts.where((c) {
+        final cleanPhone = c.phone.replaceAll(RegExp(r'[^\d+]'), '');
+        final matchesPhone = cleanPhone.contains(numDigits);
+        final t9Name = _convertNameToT9(c.name);
+        final matchesT9 = t9Name.contains(numDigits);
+        return matchesPhone || matchesT9;
+      }).take(3).toList();
+    }
+
+    // Dynamic progressive font scaling
+    final step = (_enteredNumber.length - 6).clamp(0, 100);
+    final factor = step == 0
+        ? 1.0
+        : (step <= 7 ? 1.0 - step * 0.06 : (0.58 - (step - 7) * 0.025).clamp(0.35, 1.0));
+    final numFontSize = (36.0 * factor).clamp(16.0, 36.0);
+
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.backspace) {
+            _deleteAtCursor();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.enter ||
+              event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+            if (_enteredNumber.isNotEmpty) {
+              widget.onCall(_enteredNumber);
+            } else {
+              final latest = widget.syncService.callLogs.firstOrNull;
+              if (latest != null && latest.number.isNotEmpty) {
+                setState(() {
+                  _enteredNumber = latest.number;
+                  _stableDigits.clear();
+                  for (final ch in _enteredNumber.split('')) {
+                    _stableDigits.add(_DialDigitItem(_idCounter++, ch));
+                  }
+                  _cursorPosition = _enteredNumber.length;
+                });
+              }
+            }
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+            widget.onDismiss();
+            return KeyEventResult.handled;
+          } else {
+            final keyLabel = event.logicalKey.keyLabel;
+            if (RegExp(r'^[0-9*#+]$').hasMatch(keyLabel)) {
+              _insertAtCursor(keyLabel);
+              return KeyEventResult.handled;
+            }
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Material(
+          color: colorScheme.surface,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          elevation: 16,
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Top drag pill
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 4, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+
+                // Search Bar with X button
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: TextField(
+                          controller: _searchCtrl,
+                          decoration: InputDecoration(
+                            hintText: 'Search contacts...',
+                            hintStyle: TextStyle(
+                              fontSize: 14,
+                              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                            ),
+                            prefixIcon: Icon(
+                              Icons.search,
+                              size: 20,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                            suffixIcon: _searchQuery.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear, size: 18),
+                                    onPressed: () {
+                                      _searchCtrl.clear();
+                                      setState(() => _searchQuery = '');
+                                    },
+                                  )
+                                : null,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          onChanged: (val) {
+                            setState(() => _searchQuery = val);
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: widget.onDismiss,
+                      icon: const Icon(Icons.close),
+                      style: IconButton.styleFrom(
+                        backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                        foregroundColor: colorScheme.onSurfaceVariant,
+                        shape: const CircleBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Matching contacts preview
+                if (matchedContacts.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 125),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: EdgeInsets.zero,
+                      itemCount: matchedContacts.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 4),
+                      itemBuilder: (context, idx) {
+                        final contact = matchedContacts[idx];
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () {
+                            setState(() {
+                              _enteredNumber = contact.phone;
+                              _stableDigits.clear();
+                              for (final ch in _enteredNumber.split('')) {
+                                _stableDigits.add(_DialDigitItem(_idCounter++, ch));
+                              }
+                              _cursorPosition = _enteredNumber.length;
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              children: [
+                                SmoothContactAvatar(
+                                  radius: 16,
+                                  photoBase64: contact.photoBase64,
+                                  initials: contact.initials,
+                                  backgroundColor: colorScheme.primaryContainer,
+                                  foregroundColor: colorScheme.onPrimaryContainer,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        contact.name,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text(
+                                        contact.phone,
+                                        style: TextStyle(
+                                          color: colorScheme.onSurfaceVariant,
+                                          fontSize: 11,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.call, size: 18),
+                                  color: Colors.green.shade600,
+                                  onPressed: () => widget.onCall(contact.phone),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+
+                // Number Display Area with Animated Digits & Backspace
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 52,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Centered Digits Row with blinking cursor
+                      Center(
+                        child: _enteredNumber.isEmpty
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  AnimatedBuilder(
+                                    animation: _cursorBlinkController,
+                                    builder: (context, child) {
+                                      return Opacity(
+                                        opacity: _cursorBlinkController.value > 0.5 ? 1.0 : 0.0,
+                                        child: Container(
+                                          width: 2.5,
+                                          height: 24,
+                                          decoration: BoxDecoration(
+                                            color: colorScheme.primary,
+                                            borderRadius: BorderRadius.circular(1),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Dial a number',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      color: colorScheme.outline.withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                padding: const EdgeInsets.symmetric(horizontal: 48),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    for (int i = 0; i <= _stableDigits.length; i++) ...[
+                                      if (i == _cursorPosition)
+                                        AnimatedBuilder(
+                                          animation: _cursorBlinkController,
+                                          builder: (context, child) {
+                                            return Opacity(
+                                              opacity: _cursorBlinkController.value > 0.5 ? 1.0 : 0.0,
+                                              child: Container(
+                                                width: 2.5,
+                                                height: numFontSize * 0.95,
+                                                margin: const EdgeInsets.symmetric(horizontal: 1),
+                                                decoration: BoxDecoration(
+                                                  color: colorScheme.primary,
+                                                  borderRadius: BorderRadius.circular(1),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      if (i < _stableDigits.length)
+                                        GestureDetector(
+                                          onTap: () => setState(() => _cursorPosition = i + 1),
+                                          child: _AnimatedDialDigit(
+                                            key: ValueKey(_stableDigits[i].id),
+                                            char: _stableDigits[i].char,
+                                            fontSize: numFontSize,
+                                            color: colorScheme.onSurface,
+                                          ),
+                                        ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                      ),
+
+                      // Backspace Button placed on the right
+                      Positioned(
+                        right: 0,
+                        child: _AnimatedBackspaceButton(
+                          visible: _enteredNumber.isNotEmpty,
+                          onBackspace: _deleteAtCursor,
+                          onClear: _clearAll,
+                          colorScheme: colorScheme,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Quick Action Chips (Copy, SMS)
+                if (_enteredNumber.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.person_add_outlined, size: 16),
+                        label: const Text('Add Contact', style: TextStyle(fontSize: 12)),
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        onPressed: () => widget.onAddContact(_enteredNumber),
+                      ),
+                      const SizedBox(width: 8),
+                      ActionChip(
+                        avatar: const Icon(Icons.copy_outlined, size: 16),
+                        label: const Text('Copy', style: TextStyle(fontSize: 12)),
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: _enteredNumber));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Number copied to clipboard'),
+                              duration: Duration(seconds: 2),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ActionChip(
+                        avatar: const Icon(Icons.chat_bubble_outline, size: 16),
+                        label: const Text('SMS', style: TextStyle(fontSize: 12)),
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        onPressed: () => widget.onOpenSms(_enteredNumber.trim()),
+                      ),
+                    ],
+                  ),
+                ],
+
+                const SizedBox(height: 8),
+
+                // Dialpad Keys Grid (Mobile M3 Parity)
+                Container(
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Column(
+                    children: [
+                      for (int r = 0; r < 4; r++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              for (int c = 0; c < 3; c++)
+                                _DialPadKeyWidget(
+                                  main: _keys[r * 3 + c][0],
+                                  sub: _keys[r * 3 + c][1],
+                                  onDigit: _insertAtCursor,
+                                  onLongPress: _keys[r * 3 + c][0] == '0'
+                                      ? () => _insertAtCursor('+')
+                                      : null,
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // Bottom Action Row (Add Contact | Call Button | Spacer)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Add Contact Expressive Action Button
+                      _DialerActionExpressive(
+                        icon: Icons.person_add_rounded,
+                        containerColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                        contentColor: colorScheme.onSurface,
+                        width: 72,
+                        height: 56,
+                        onClick: () => widget.onAddContact(_enteredNumber),
+                      ),
+
+                      // Centered Green Call Button
+                      _DialerActionExpressive(
+                        icon: Icons.call,
+                        containerColor: const Color(0xFF34A853),
+                        contentColor: Colors.white,
+                        width: 96,
+                        height: 56,
+                        isCallButton: true,
+                        onClick: () {
+                          if (_enteredNumber.trim().isNotEmpty) {
+                            widget.onCall(_enteredNumber.trim());
+                          } else {
+                            final latest = widget.syncService.callLogs.firstOrNull;
+                            if (latest != null && latest.number.isNotEmpty) {
+                              setState(() {
+                                _enteredNumber = latest.number;
+                                _stableDigits.clear();
+                                for (final ch in _enteredNumber.split('')) {
+                                  _stableDigits.add(_DialDigitItem(_idCounter++, ch));
+                                }
+                                _cursorPosition = _enteredNumber.length;
+                              });
+                            }
+                          }
+                        },
+                      ),
+
+                      // Right Balanced Spacer matching mobile
+                      const SizedBox(width: 72, height: 56),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+

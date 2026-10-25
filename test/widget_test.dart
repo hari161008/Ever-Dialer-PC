@@ -77,7 +77,8 @@ void main() {
     expect(find.text('Interface'), findsOneWidget);
     expect(find.text('Display Scaling'), findsOneWidget);
     expect(find.text('Font Size'), findsOneWidget);
-    expect(find.text('100%'), findsNWidgets(2)); // Both default to 100%
+    expect(find.text('100%'), findsNWidgets(2)); // Both display scale and font size default to 100%
+    expect(find.text('0%'), findsOneWidget); // Window transparency defaults to 0%
 
     mockService.dispose();
     mockSyncService.dispose();
@@ -1567,6 +1568,176 @@ void main() {
 
     expect(mockSyncService.favoritesInList, isFalse);
     expect(find.byType(GridView), findsOneWidget);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Appearance screen provides Background container with Blur and Window Transparency sliders and Reset button', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Open Settings via Bluetooth & Sync Settings button
+    await tester.tap(find.text('Bluetooth & Sync Settings'));
+    await tester.pumpAndSettle();
+
+    // Verify Background container exists
+    expect(find.text('Background'), findsOneWidget);
+    expect(find.text('Blur for all pages'), findsOneWidget);
+    expect(find.text('No blur'), findsOneWidget);
+    expect(find.text('Window Transparency'), findsOneWidget);
+    expect(find.text('0%'), findsOneWidget);
+
+    // Verify reset background button tooltip exists
+    expect(find.byTooltip('Reset background'), findsOneWidget);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('SMS screen displays mobile-styled New Message view with search field and contact picker', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    mockSyncService.updateFromPayload({
+      'contacts': [
+        {
+          'id': 'c_bob',
+          'name': 'Bob Builder',
+          'phone': '+1987654321',
+          'isFavorite': false,
+        }
+      ],
+      'smsThreads': [],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Switch to SMS tab
+    await tester.tap(find.text('SMS'));
+    await tester.pumpAndSettle();
+
+    // When threads are empty, the New Message button is in the top bar
+    final newMsgBtn = find.byTooltip('New Message');
+    expect(newMsgBtn, findsOneWidget);
+    await tester.tap(newMsgBtn);
+    await tester.pumpAndSettle();
+
+    // Verify mobile-styled New Message view is shown
+    expect(find.text('New Message'), findsWidgets);
+    expect(find.widgetWithText(TextField, 'Type a name or phone number'), findsOneWidget);
+
+    // Verify contact Bob Builder is in the picker list
+    expect(find.text('Bob Builder'), findsOneWidget);
+    expect(find.text('+1987654321'), findsOneWidget);
+
+    // Type a number in the search field
+    await tester.enterText(find.widgetWithText(TextField, 'Type a name or phone number'), '5551234');
+    await tester.pumpAndSettle();
+
+    // Verify "Send to 5551234" direct send card appears
+    expect(find.text('Send to 5551234'), findsOneWidget);
+
+    // Tap "Send to 5551234"
+    await tester.tap(find.text('Send to 5551234'));
+    await tester.pumpAndSettle();
+
+    // Verify chat view is opened for 5551234
+    expect(find.text('5551234'), findsWidgets);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Calls screen displays mobile-styled animated dialpad bottom sheet with digits, backspace, and call action', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Switch to Calls tab
+    await tester.tap(find.text('Calls'));
+    await tester.pumpAndSettle();
+
+    // Tap Dialpad FAB
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Dialpad'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Verify dialpad numbers are present
+    expect(find.text('1'), findsWidgets);
+    expect(find.text('2'), findsWidgets);
+    expect(find.text('3'), findsWidgets);
+
+    // Tap 1, 2, 3
+    await tester.tap(find.text('1').first, warnIfMissed: false);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('2').first, warnIfMissed: false);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('3').first, warnIfMissed: false);
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Verify typed number display
+    expect(find.text('1'), findsWidgets);
+    expect(find.text('2'), findsWidgets);
+    expect(find.text('3'), findsWidgets);
+
+    // Verify backspace button is visible
+    final backspaceIcon = find.byIcon(Icons.backspace_outlined);
+    expect(backspaceIcon, findsOneWidget);
+
+    // Tap backspace
+    await tester.tap(backspaceIcon);
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Tap call button
+    final callIcon = find.byIcon(Icons.call);
+    expect(callIcon, findsOneWidget);
+    await tester.tap(callIcon);
+    await tester.pump(const Duration(milliseconds: 200));
 
     mockService.dispose();
     mockSyncService.dispose();

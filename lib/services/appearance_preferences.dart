@@ -13,6 +13,9 @@ class AppearancePreferences extends ChangeNotifier {
   String? _customFontFamily;
   late bool _saturatedColors;
   late String _saturatedTarget;
+  late double _backgroundBlur;
+  late double _windowTransparency;
+  late double _backgroundDimness;
 
   static const List<Map<String, String>> availableFonts = [
     {'id': 'system', 'name': 'System Default', 'family': ''},
@@ -26,6 +29,15 @@ class AppearancePreferences extends ChangeNotifier {
   AppearancePreferences(this._prefs) {
     _displayScale = (_prefs?.getDouble('display_scale') ?? 1.0).clamp(0.70, 1.50);
     _fontScale = (_prefs?.getDouble('font_scale') ?? 1.0).clamp(0.70, 1.50);
+    _backgroundBlur = (_prefs?.getDouble('background_blur') ?? 0.0).clamp(0.0, 30.0);
+    final savedTransparency = _prefs?.getDouble('window_transparency');
+    if (savedTransparency != null) {
+      _windowTransparency = savedTransparency.clamp(0.0, 1.0);
+    } else {
+      final legacyDim = _prefs?.getDouble('background_dimness');
+      _windowTransparency = legacyDim != null ? (1.0 - legacyDim).clamp(0.0, 1.0) : 0.0;
+    }
+    _backgroundDimness = (1.0 - _windowTransparency).clamp(0.0, 1.0);
 
     // Support legacy theme_mode ('dark', 'light', 'system') migration to color_mode
     final legacyTheme = _prefs?.getString('theme_mode');
@@ -57,6 +69,9 @@ class AppearancePreferences extends ChangeNotifier {
   String get colorMode => _colorMode;
   double get displayScale => _displayScale;
   double get fontScale => _fontScale;
+  double get backgroundBlur => _backgroundBlur;
+  double get windowTransparency => _windowTransparency;
+  double get backgroundDimness => _backgroundDimness;
   bool get dynamicColors => _dynamicColors;
   Color get customPrimaryColor => _customPrimaryColor ?? const Color(0xFF6750A4);
   String? get customFontFamily => _customFontFamily;
@@ -122,6 +137,32 @@ class AppearancePreferences extends ChangeNotifier {
 
   void resetDisplayScale() => setDisplayScale(1.0);
   void resetFontScale() => setFontScale(1.0);
+
+  void setBackgroundBlur(double val) {
+    final clamped = double.parse(val.clamp(0.0, 30.0).toStringAsFixed(1));
+    if (_backgroundBlur == clamped) return;
+    _backgroundBlur = clamped;
+    _prefs?.setDouble('background_blur', clamped);
+    notifyListeners();
+  }
+
+  void setBackgroundDimness(double val) {
+    setWindowTransparency(1.0 - val);
+  }
+
+  void setWindowTransparency(double val) {
+    final clamped = double.parse(val.clamp(0.0, 1.0).toStringAsFixed(2));
+    if (_windowTransparency == clamped) return;
+    _windowTransparency = clamped;
+    _backgroundDimness = (1.0 - clamped).clamp(0.0, 1.0);
+    _prefs?.setDouble('window_transparency', clamped);
+    notifyListeners();
+  }
+
+  void resetBackgroundSettings() {
+    setBackgroundBlur(0.0);
+    setWindowTransparency(0.0);
+  }
 
   void setDynamicColors(bool val) {
     if (_dynamicColors == val) return;

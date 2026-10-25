@@ -423,6 +423,102 @@ class _AppearanceScreenState extends State<AppearanceScreen> {
 
               const SizedBox(height: 16),
 
+              // ── Background Container (Blur & Dimness) ───
+              RivoExpressiveCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Background',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                        IconButton.filledTonal(
+                          icon: const Icon(Icons.refresh, size: 18),
+                          tooltip: 'Reset background',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            app.resetBackgroundSettings();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Blur for all pages Slider
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Blur for all pages',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          app.backgroundBlur == 0
+                              ? 'No blur'
+                              : '${app.backgroundBlur.toStringAsFixed(1)} px',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Slider(
+                      value: app.backgroundBlur,
+                      min: 0.0,
+                      max: 30.0,
+                      divisions: 30,
+                      onChanged: (val) => app.setBackgroundBlur(val),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // Window Transparency Slider
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Window Transparency',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${(app.windowTransparency * 100).round()}%',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Slider(
+                      value: app.windowTransparency,
+                      min: 0.0,
+                      max: 1.0,
+                      divisions: 20,
+                      onChanged: (val) => app.setWindowTransparency(val),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
               // ── 2. Theme Colors ─────────────────────────
               const RivoSectionHeader(title: 'Theme Colors'),
               RivoExpressiveCard(

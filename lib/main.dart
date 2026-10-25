@@ -185,6 +185,32 @@ class _EverDialerAppState extends State<EverDialerApp> {
               );
             }
 
+            final transparency = _appearance.windowTransparency;
+            if (transparency > 0.0) {
+              final opacity = (1.0 - transparency).clamp(0.0, 1.0);
+              Color transparentColor(Color original, double factor) {
+                if (factor >= 1.0) return original;
+                return original.withValues(alpha: (original.a * factor).clamp(0.0, 1.0));
+              }
+
+              darkColorScheme = darkColorScheme.copyWith(
+                surface: transparentColor(darkColorScheme.surface, opacity),
+                surfaceContainer: transparentColor(darkColorScheme.surfaceContainer, opacity),
+                surfaceContainerHigh: transparentColor(darkColorScheme.surfaceContainerHigh, opacity),
+                surfaceContainerHighest: transparentColor(darkColorScheme.surfaceContainerHighest, opacity),
+                surfaceContainerLow: transparentColor(darkColorScheme.surfaceContainerLow, opacity),
+                surfaceContainerLowest: transparentColor(darkColorScheme.surfaceContainerLowest, opacity),
+              );
+              lightColorScheme = lightColorScheme.copyWith(
+                surface: transparentColor(lightColorScheme.surface, opacity),
+                surfaceContainer: transparentColor(lightColorScheme.surfaceContainer, opacity),
+                surfaceContainerHigh: transparentColor(lightColorScheme.surfaceContainerHigh, opacity),
+                surfaceContainerHighest: transparentColor(lightColorScheme.surfaceContainerHighest, opacity),
+                surfaceContainerLow: transparentColor(lightColorScheme.surfaceContainerLow, opacity),
+                surfaceContainerLowest: transparentColor(lightColorScheme.surfaceContainerLowest, opacity),
+              );
+            }
+
             final displayScale = _appearance.displayScale;
             final fontScale = _appearance.fontScale;
             final fontFamily = _appearance.customFontFamily;
@@ -197,7 +223,9 @@ class _EverDialerAppState extends State<EverDialerApp> {
                 useMaterial3: true,
                 fontFamily: fontFamily,
                 colorScheme: lightColorScheme,
-                scaffoldBackgroundColor: isWhiteMode ? const Color(0xFFFFFFFF) : lightColorScheme.surface,
+                scaffoldBackgroundColor: isWhiteMode
+                    ? const Color(0xFFFFFFFF).withValues(alpha: (1.0 - transparency).clamp(0.0, 1.0))
+                    : lightColorScheme.surface,
                 iconTheme: IconThemeData(
                   color: lightColorScheme.onSurface,
                   size: (22 * displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
@@ -216,7 +244,9 @@ class _EverDialerAppState extends State<EverDialerApp> {
                 useMaterial3: true,
                 fontFamily: fontFamily,
                 colorScheme: darkColorScheme,
-                scaffoldBackgroundColor: isBlackMode ? const Color(0xFF000000) : darkColorScheme.surface,
+                scaffoldBackgroundColor: isBlackMode
+                    ? const Color(0xFF000000).withValues(alpha: (1.0 - transparency).clamp(0.0, 1.0))
+                    : darkColorScheme.surface,
                 iconTheme: IconThemeData(
                   color: darkColorScheme.onSurface,
                   size: (22 * displayScale.clamp(0.4, 2.0)).clamp(12.0, 44.0),
@@ -442,6 +472,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
             body: MobileLandscapeLayout(
               syncService: _syncService,
               onOpenSettings: _openSettings,
+              appearance: _appearance,
             ),
           );
         }

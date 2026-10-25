@@ -21,30 +21,29 @@ while [ -h "$SCRIPT_SOURCE" ]; do
 done
 RESOLVED_SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 
-# Project root is the parent directory of 'scripts/'
-CANDIDATE_PROJECT_DIR="$(cd "${RESOLVED_SCRIPT_DIR}/.." && pwd)"
-
-CONFIG_FILE="${HOME}/.config/ever_dialer_pc/project_dir"
-mkdir -p "$(dirname "$CONFIG_FILE")"
-
-if [ -f "${CANDIDATE_PROJECT_DIR}/pubspec.yaml" ] && grep -q "name: ever_dialer_pc" "${CANDIDATE_PROJECT_DIR}/pubspec.yaml" 2>/dev/null; then
-    PROJECT_DIR="$CANDIDATE_PROJECT_DIR"
-    echo "$PROJECT_DIR" > "$CONFIG_FILE"
+# Project root can be the directory itself or parent of 'scripts/'
+if [ -f "${RESOLVED_SCRIPT_DIR}/pubspec.yaml" ] && grep -q "name: ever_dialer_pc" "${RESOLVED_SCRIPT_DIR}/pubspec.yaml" 2>/dev/null; then
+    PROJECT_DIR="$RESOLVED_SCRIPT_DIR"
+elif [ -f "${RESOLVED_SCRIPT_DIR}/../pubspec.yaml" ] && grep -q "name: ever_dialer_pc" "${RESOLVED_SCRIPT_DIR}/../pubspec.yaml" 2>/dev/null; then
+    PROJECT_DIR="$(cd "${RESOLVED_SCRIPT_DIR}/.." && pwd)"
 elif [ -f "./pubspec.yaml" ] && grep -q "name: ever_dialer_pc" "./pubspec.yaml" 2>/dev/null; then
     PROJECT_DIR="$(pwd)"
-    echo "$PROJECT_DIR" > "$CONFIG_FILE"
-elif [ -f "$CONFIG_FILE" ] && [ -d "$(cat "$CONFIG_FILE")" ]; then
-    PROJECT_DIR="$(cat "$CONFIG_FILE")"
+elif [ -f "${HOME}/.config/ever_dialer_pc/project_dir" ] && [ -d "$(cat "${HOME}/.config/ever_dialer_pc/project_dir")" ]; then
+    PROJECT_DIR="$(cat "${HOME}/.config/ever_dialer_pc/project_dir")"
 else
     echo "Error: Could not locate the Ever Dialer PC project directory."
     echo "Please navigate into the project folder and run: bash scripts/app_release.sh"
     exit 1
 fi
 
+CONFIG_FILE="${HOME}/.config/ever_dialer_pc/project_dir"
+mkdir -p "$(dirname "$CONFIG_FILE")"
+echo "$PROJECT_DIR" > "$CONFIG_FILE"
+
 cd "$PROJECT_DIR"
 
 # -------------------------------------------------------------------
-# 2. SELF-HEALING: ENSURE 'app_release' SYMLINK IS ALWAYS VALID
+# 2. SELF-HEALING: ENSURE 'app_release' & 'build_release' SYMLINKS ARE VALID
 # -------------------------------------------------------------------
 LOCAL_BIN="${HOME}/.local/bin"
 mkdir -p "$LOCAL_BIN"
@@ -54,8 +53,22 @@ if [ ! -L "${LOCAL_BIN}/app_release" ] || [ "$(readlink -f "${LOCAL_BIN}/app_rel
     ln -sf "$CURRENT_SCRIPT" "${LOCAL_BIN}/app_release"
     chmod +x "${LOCAL_BIN}/app_release"
 fi
+if [ ! -L "${LOCAL_BIN}/build_release" ] || [ "$(readlink -f "${LOCAL_BIN}/build_release")" != "$CURRENT_SCRIPT" ]; then
+    ln -sf "$CURRENT_SCRIPT" "${LOCAL_BIN}/build_release"
+    chmod +x "${LOCAL_BIN}/build_release"
+fi
 
-export PATH="${LOCAL_BIN}:${HOME}/bin:${PATH}"
+# Ensure root folder symlinks exist in the pc version folder
+if [ ! -L "${PROJECT_DIR}/app_release" ] || [ "$(readlink -f "${PROJECT_DIR}/app_release")" != "$CURRENT_SCRIPT" ]; then
+    ln -sf "scripts/app_release.sh" "${PROJECT_DIR}/app_release"
+    chmod +x "${PROJECT_DIR}/app_release"
+fi
+if [ ! -L "${PROJECT_DIR}/build_release" ] || [ "$(readlink -f "${PROJECT_DIR}/build_release")" != "$CURRENT_SCRIPT" ]; then
+    ln -sf "scripts/app_release.sh" "${PROJECT_DIR}/build_release"
+    chmod +x "${PROJECT_DIR}/build_release"
+fi
+
+export PATH="${LOCAL_BIN}:${HOME}/.local/opt/flutter/bin:${HOME}/bin:${PATH}"
 
 # -------------------------------------------------------------------
 # 3. AUTO-BOOTSTRAP PACKAGING TOOLS IF ON A NEW PC
@@ -114,7 +127,16 @@ echo ""
 # 5. COMPILE FLUTTER RELEASE
 # -------------------------------------------------------------------
 echo -e "${BLUE}▶ 1/5 Compiling Flutter Linux Release Binary...${RESET}"
-flutter build linux --release
+# Stop any running release binary so CMake/ninja doesn't fail with 'Text file busy'
+pkill -f "build/linux/x64/release/bundle/ever_dialer_pc" 2>/dev/null || true
+sleep 0.2
+
+if ! flutter build linux --release; then
+    echo -e "${YELLOW}Build failed. Cleaning release cache and retrying...${RESET}"
+    flutter pub get
+    rm -rf "${PROJECT_DIR}/build/linux/x64/release"
+    flutter build linux --release
+fi
 
 BUNDLE_DIR="${PROJECT_DIR}/build/linux/x64/release/bundle"
 if [ ! -d "$BUNDLE_DIR" ]; then
@@ -148,7 +170,8 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
 
 cp -r "$BUNDLE_DIR/"* "$APPDIR/usr/bin/"
-mv "$APPDIR/usr/bin/lib/"* "$APPDIR/usr/lib/" 2>/dev/null || true
+mkdir -p "$APPDIR/usr/lib"
+cp -r "$BUNDLE_DIR/lib/"* "$APPDIR/usr/lib/" 2>/dev/null || true
 cp "${PROJECT_DIR}/assets/icons/app_icon_512.png" "$APPDIR/ever_dialer_pc.png"
 cp "${PROJECT_DIR}/assets/icons/app_icon_512.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/ever_dialer_pc.png"
 cp "${PROJECT_DIR}/linux/ever_dialer_pc.desktop" "$APPDIR/ever_dialer_pc.desktop"
@@ -156,7 +179,7 @@ cp "${PROJECT_DIR}/linux/ever_dialer_pc.desktop" "$APPDIR/ever_dialer_pc.desktop
 cat << 'EOF' > "$APPDIR/AppRun"
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
-export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin/lib:${LD_LIBRARY_PATH}"
 exec "${HERE}/usr/bin/ever_dialer_pc" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
@@ -164,10 +187,16 @@ chmod +x "$APPDIR/AppRun"
 APPIMAGE_OUT="${OUTPUT_DIR}/Ever-Dialer-PC-${VERSION}-${ARCH}.AppImage"
 rm -f "$APPIMAGE_OUT"
 ARCH=x86_64 appimagetool --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_OUT" > /dev/null 2>&1 || \
-ARCH=x86_64 appimagetool --appimage-extract-and-run --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_OUT" > /dev/null 2>&1
-chmod +x "$APPIMAGE_OUT"
+ARCH=x86_64 appimagetool --appimage-extract-and-run --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_OUT" > /dev/null 2>&1 || \
+ARCH=x86_64 appimagetool --appimage-extract-and-run "$APPDIR" "$APPIMAGE_OUT" > /dev/null 2>&1 || true
+
+if [ -f "$APPIMAGE_OUT" ]; then
+    chmod +x "$APPIMAGE_OUT"
+    echo -e "${GREEN}  ✓ Created AppImage:${RESET} $(basename "$APPIMAGE_OUT")"
+else
+    echo -e "${YELLOW}  ⚠ AppImage creation skipped or failed${RESET}"
+fi
 rm -rf "$APPDIR"
-echo -e "${GREEN}  ✓ Created AppImage:${RESET} $(basename "$APPIMAGE_OUT")"
 
 # -------------------------------------------------------------------
 # 7. PACKAGE DEB, RPM, & ARCH LINUX WITH NFPM
@@ -212,14 +241,19 @@ RPM_OUT="${OUTPUT_DIR}/${APP_NAME}-${VERSION}-1.${ARCH}.rpm"
 ARCH_OUT="${OUTPUT_DIR}/${APP_NAME}-${VERSION}-1-${ARCH}.pkg.tar.zst"
 rm -f "$DEB_OUT" "$RPM_OUT" "$ARCH_OUT"
 
-nfpm package -f "$NFPM_CONFIG" --packager deb --target "$DEB_OUT" > /dev/null
-echo -e "${GREEN}  ✓ Created DEB package:${RESET} $(basename "$DEB_OUT")"
+if nfpm package -f "$NFPM_CONFIG" --packager deb --target "$DEB_OUT" 2>/dev/null; then
+    echo -e "${GREEN}  ✓ Created DEB package:${RESET} $(basename "$DEB_OUT")"
+else
+    echo -e "${YELLOW}  ⚠ DEB packaging skipped or failed${RESET}"
+fi
 
-nfpm package -f "$NFPM_CONFIG" --packager rpm --target "$RPM_OUT" > /dev/null
-echo -e "${GREEN}  ✓ Created RPM package:${RESET} $(basename "$RPM_OUT")"
+if nfpm package -f "$NFPM_CONFIG" --packager rpm --target "$RPM_OUT" 2>/dev/null; then
+    echo -e "${GREEN}  ✓ Created RPM package:${RESET} $(basename "$RPM_OUT")"
+else
+    echo -e "${YELLOW}  ⚠ RPM packaging skipped or failed${RESET}"
+fi
 
-nfpm package -f "$NFPM_CONFIG" --packager archlinux --target "$ARCH_OUT" > /dev/null 2>&1 || true
-if [ -f "$ARCH_OUT" ]; then
+if nfpm package -f "$NFPM_CONFIG" --packager archlinux --target "$ARCH_OUT" 2>/dev/null; then
     echo -e "${GREEN}  ✓ Created Arch Linux package:${RESET} $(basename "$ARCH_OUT")"
 fi
 

@@ -1438,6 +1438,31 @@ class PcSyncService extends ChangeNotifier {
     }
   }
 
+  SyncedSmsThread getOrCreateThreadForNumber(String phone, {String? contactName}) {
+    final cleanPhone = phone.trim();
+    final digits = cleanPhone.replaceAll(RegExp(r'[^\d+]'), '');
+    final index = _smsThreads.indexWhere((t) {
+      final tDigits = t.phone.replaceAll(RegExp(r'[^\d+]'), '');
+      return t.phone == cleanPhone || (digits.isNotEmpty && tDigits == digits);
+    });
+    if (index != -1) {
+      return _smsThreads[index];
+    }
+    final newThread = SyncedSmsThread(
+      id: 'thread_${DateTime.now().millisecondsSinceEpoch}',
+      contactName: (contactName != null && contactName.isNotEmpty) ? contactName : cleanPhone,
+      phone: cleanPhone,
+      snippet: '',
+      timestamp: DateTime.now(),
+      unreadCount: 0,
+      messages: [],
+    );
+    _smsThreads.insert(0, newThread);
+    _saveCachedData();
+    notifyListeners();
+    return newThread;
+  }
+
   void toggleFavorite(String contactId) {
     final index = _contacts.indexWhere((c) => c.id == contactId);
     if (index != -1) {
