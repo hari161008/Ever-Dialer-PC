@@ -1742,6 +1742,168 @@ void main() {
     mockService.dispose();
     mockSyncService.dispose();
   });
+
+  testWidgets('Mobile view adaptation: adapts to narrow mobile window (380x700) with bottom NavigationBar, header Settings, and responsive elements without overflow', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(380, 700);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    mockSyncService.updateFromPayload({
+      'callLogs': [
+        {
+          'id': 'log_m1',
+          'name': 'Alice Very Long Contact Name That Would Test Ellipsis',
+          'number': '+18889990001',
+          'type': 'incoming',
+          'timestamp': now,
+          'duration': 60,
+          'simSlot': 1,
+          'count': 1,
+        },
+      ],
+      'contacts': [
+        {
+          'id': 'c_m1',
+          'name': 'Bob The Builder Longer Name For Testing Truncation',
+          'phone': '+19998887776',
+          'isFavorite': true,
+        },
+      ],
+      'sms': [],
+      'notes': [],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Verify Bottom NavigationBar is shown on mobile view
+    expect(find.byType(NavigationBar), findsOneWidget);
+
+    // Verify Favourites screen header has Settings button on mobile view
+    expect(find.byTooltip('Settings'), findsOneWidget);
+
+    // Switch to Calls screen on mobile
+    await tester.tap(find.text('Calls'));
+    await tester.pumpAndSettle();
+
+    // Verify mobile Dialpad FAB is present
+    expect(find.byIcon(Icons.dialpad), findsOneWidget);
+    // Verify Call Logs header has Settings button on mobile
+    expect(find.byTooltip('Settings'), findsOneWidget);
+
+    // Switch to Contacts screen on mobile
+    await tester.tap(find.text('Contacts'));
+    await tester.pumpAndSettle();
+
+    // Verify Contacts header has Settings button on mobile
+    expect(find.byTooltip('Settings'), findsOneWidget);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Favourites screen redesigned grid card displays cover banner and quick call action', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+      'favourites_view_mode': 'grid',
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    mockSyncService.updateFromPayload({
+      'contacts': [
+        {
+          'id': 'fav_card_1',
+          'name': 'Charlie',
+          'phone': '+1234567890',
+          'isFavorite': true,
+        },
+      ],
+      'callLogs': [],
+      'sms': [],
+      'notes': [],
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Verify Charlie is shown in grid mode
+    expect(find.text('Charlie'), findsOneWidget);
+    expect(find.text('+1234567890'), findsOneWidget);
+
+    // Verify call icon action button inside the card
+    expect(find.byIcon(Icons.call), findsWidgets);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('Section switching animation uses SlideTransition and FadeTransition matching mobile', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Switch to Calls tab
+    await tester.tap(find.text('Calls'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Verify AnimatedSwitcher has active SlideTransition and FadeTransition
+    expect(find.byType(SlideTransition), findsWidgets);
+    expect(find.byType(FadeTransition), findsWidgets);
+
+    await tester.pumpAndSettle();
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
 }
 
 

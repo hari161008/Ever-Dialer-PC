@@ -25,6 +25,16 @@ class MobileLandscapeLayout extends StatefulWidget {
 
 class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   int _selectedIndex = 0; // 0: Favourites, 1: Calls, 2: Contacts, 3: SMS, 4: Notes
+  int _previousIndex = 0;
+  bool _isMobileView = false;
+
+  void _changeTab(int newIndex) {
+    if (newIndex == _selectedIndex) return;
+    setState(() {
+      _previousIndex = _selectedIndex;
+      _selectedIndex = newIndex;
+    });
+  }
 
   // Calls tab state
   String _callFilter = 'All'; // All, Missed, Incoming, Outgoing
@@ -456,186 +466,281 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             ? _selectedIndex
             : (visibleIndices.isNotEmpty ? visibleIndices.first : -1);
 
-        return Row(
-          children: [
-            // ── Left Navigation Rail ──────────────────────────────────────────
-            Container(
-              width: 88,
-              decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerLow,
-                border: Border(
-                  right: BorderSide(
-                    color: colorScheme.outlineVariant.withValues(alpha: 0.4),
-                    width: 1,
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isMobile = constraints.maxWidth < 640 || constraints.maxWidth < constraints.maxHeight;
+            _isMobileView = isMobile;
+
+            final direction = activeIndex >= _previousIndex ? 1 : -1;
+
+            Widget pageWidget;
+            switch (activeIndex) {
+              case 0:
+                pageWidget = _buildFavouritesView();
+                break;
+              case 1:
+                pageWidget = _buildCallLogsView();
+                break;
+              case 2:
+                pageWidget = _buildContactsView();
+                break;
+              case 3:
+                pageWidget = _buildSmsView();
+                break;
+              case 4:
+                pageWidget = _buildNotesView();
+                break;
+              default:
+                pageWidget = Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.sync_disabled, size: 48, color: colorScheme.outline),
+                      const SizedBox(height: 12),
+                      Text(
+                        'All sync categories are disabled',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Enable categories in PC Connect settings on your phone.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+                break;
+            }
+
+            final blur = widget.appearance?.backgroundBlur ?? 0.0;
+            Widget animatedPageContent = pageWidget;
+            if (blur > 0.0) {
+              animatedPageContent = Stack(
+                children: [
+                  Positioned.fill(
+                    child: ClipRect(
+                      child: BackdropFilter(
+                        filter: ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
+                  animatedPageContent,
+                ],
+              );
+            }
+
+            // Main Content Area with Slow, Smooth Section Switching Animation matching mobile TabTransitionStyle
+            final contentArea = Expanded(
+              child: Material(
+                color: colorScheme.surface,
+                child: ClipRect(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 550),
+                    switchInCurve: const Cubic(0.25, 1.0, 0.5, 1.0),
+                    switchOutCurve: const Cubic(0.25, 1.0, 0.5, 1.0),
+                    layoutBuilder: (currentChild, previousChildren) {
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ...previousChildren,
+                          ?currentChild,
+                        ],
+                      );
+                    },
+                    transitionBuilder: (child, animation) {
+                      final isIncoming = child.key == ValueKey<int>(activeIndex);
+                      final curved = CurvedAnimation(
+                        parent: animation,
+                        curve: const Cubic(0.25, 1.0, 0.5, 1.0),
+                      );
+                      final offsetTween = isIncoming
+                          ? Tween<Offset>(
+                              begin: Offset(direction * 0.25, 0.0),
+                              end: Offset.zero,
+                            )
+                          : Tween<Offset>(
+                              begin: Offset(-direction * 0.25, 0.0),
+                              end: Offset.zero,
+                            );
+                      return SlideTransition(
+                        position: offsetTween.animate(curved),
+                        child: FadeTransition(
+                          opacity: curved,
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: KeyedSubtree(
+                      key: ValueKey<int>(activeIndex),
+                      child: animatedPageContent,
+                    ),
                   ),
                 ),
               ),
-              child: Column(
+            );
+
+            if (isMobile) {
+              // Mobile View: Full-width content area with adaptive bottom navigation bar
+              return Column(
                 children: [
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          if (sync.syncFavouritesEnabled) ...[
-                            _buildRailItem(
-                              index: 0,
-                              icon: Icons.favorite,
-                              unselectedIcon: Icons.favorite_border,
-                              label: 'Favourites',
-                              isSelected: activeIndex == 0,
-                            ),
-                            const SizedBox(height: 6),
-                          ],
-                          if (sync.syncCallLogsEnabled) ...[
-                            _buildRailItem(
-                              index: 1,
-                              icon: Icons.history,
-                              unselectedIcon: Icons.history_outlined,
-                              label: 'Calls',
-                              isSelected: activeIndex == 1,
-                            ),
-                            const SizedBox(height: 6),
-                          ],
-                          if (sync.syncContactsEnabled) ...[
-                            _buildRailItem(
-                              index: 2,
-                              icon: Icons.person,
-                              unselectedIcon: Icons.person_outline,
-                              label: 'Contacts',
-                              isSelected: activeIndex == 2,
-                            ),
-                            const SizedBox(height: 6),
-                          ],
-                          if (sync.syncSmsEnabled) ...[
-                            _buildRailItem(
-                              index: 3,
-                              icon: Icons.chat,
-                              unselectedIcon: Icons.chat_bubble_outline,
-                              label: 'SMS',
-                              isSelected: activeIndex == 3,
-                            ),
-                            const SizedBox(height: 6),
-                          ],
-                          if (sync.syncNotesEnabled) ...[
-                            _buildRailItem(
-                              index: 4,
-                              icon: Icons.note_alt,
-                              unselectedIcon: Icons.note_alt_outlined,
-                              label: 'Notes',
-                              isSelected: activeIndex == 4,
-                            ),
-                            const SizedBox(height: 6),
-                          ],
-                        ],
+                  contentArea,
+                  Container(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerLow,
+                      border: Border(
+                        top: BorderSide(
+                          color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                          width: 1,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Settings button at bottom of rail
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12.0),
-                    child: IconButton(
-                      icon: const Icon(Icons.tune),
-                      tooltip: 'Settings',
-                      iconSize: 24,
-                      color: colorScheme.onSurfaceVariant,
-                      onPressed: widget.onOpenSettings,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Right Main Content Area ───────────────────────────────────────
-            Expanded(
-              child: Stack(
-                children: [
-                  Material(
-                    color: colorScheme.surface,
-                    child: Builder(
-                      builder: (context) {
-                        Widget pageWidget;
-                        switch (activeIndex) {
-                          case 0:
-                            pageWidget = _buildFavouritesView();
-                            break;
-                          case 1:
-                            pageWidget = _buildCallLogsView();
-                            break;
-                          case 2:
-                            pageWidget = _buildContactsView();
-                            break;
-                          case 3:
-                            pageWidget = _buildSmsView();
-                            break;
-                          case 4:
-                            pageWidget = _buildNotesView();
-                            break;
-                          default:
-                            pageWidget = Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.sync_disabled, size: 48, color: colorScheme.outline),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'All sync categories are disabled',
-                                    style: theme.textTheme.titleMedium?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Enable categories in PC Connect settings on your phone.',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: colorScheme.outline,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                            break;
+                    child: NavigationBar(
+                      backgroundColor: Colors.transparent,
+                      indicatorColor: colorScheme.primaryContainer,
+                      selectedIndex: visibleIndices.indexOf(activeIndex).clamp(0, visibleIndices.isNotEmpty ? visibleIndices.length - 1 : 0),
+                      onDestinationSelected: (vIdx) {
+                        if (vIdx >= 0 && vIdx < visibleIndices.length) {
+                          _changeTab(visibleIndices[vIdx]);
                         }
-
-                        final blur = widget.appearance?.backgroundBlur ?? 0.0;
-
-                        Widget content = pageWidget;
-                        if (blur > 0.0) {
-                          content = Stack(
-                            children: [
-                              Positioned.fill(
-                                child: ClipRect(
-                                  child: BackdropFilter(
-                                    filter: ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-                                    child: const SizedBox.expand(),
-                                  ),
-                                ),
-                              ),
-                              content,
-                            ],
-                          );
-                        }
-
-                        return content;
                       },
+                      destinations: [
+                        if (sync.syncFavouritesEnabled)
+                          NavigationDestination(
+                            icon: const Icon(Icons.favorite_border),
+                            selectedIcon: Icon(Icons.favorite, color: colorScheme.onPrimaryContainer),
+                            label: 'Favourites',
+                          ),
+                        if (sync.syncCallLogsEnabled)
+                          NavigationDestination(
+                            icon: const Icon(Icons.history_outlined),
+                            selectedIcon: Icon(Icons.history, color: colorScheme.onPrimaryContainer),
+                            label: 'Calls',
+                          ),
+                        if (sync.syncContactsEnabled)
+                          NavigationDestination(
+                            icon: const Icon(Icons.person_outline),
+                            selectedIcon: Icon(Icons.person, color: colorScheme.onPrimaryContainer),
+                            label: 'Contacts',
+                          ),
+                        if (sync.syncSmsEnabled)
+                          NavigationDestination(
+                            icon: const Icon(Icons.chat_bubble_outline),
+                            selectedIcon: Icon(Icons.chat, color: colorScheme.onPrimaryContainer),
+                            label: 'SMS',
+                          ),
+                        if (sync.syncNotesEnabled)
+                          NavigationDestination(
+                            icon: const Icon(Icons.note_alt_outlined),
+                            selectedIcon: Icon(Icons.note_alt, color: colorScheme.onPrimaryContainer),
+                            label: 'Notes',
+                          ),
+                      ],
                     ),
                   ),
-                  if (activeIndex == 1)
-                    Positioned(
-                      right: 24,
-                      bottom: 24,
-                      child: FloatingActionButton.extended(
-                        onPressed: () => _showDialDialog(context),
-                        icon: const Icon(Icons.dialpad),
-                        label: const Text('Dialpad'),
+                ],
+              );
+            }
+
+            // Desktop / Landscape View: Navigation Rail on left, full content area on right
+            return Row(
+              children: [
+                Container(
+                  width: 88,
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerLow,
+                    border: Border(
+                      right: BorderSide(
+                        color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                        width: 1,
                       ),
                     ),
-                ],
-              ),
-            ),
-          ],
+                  ),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              if (sync.syncFavouritesEnabled) ...[
+                                _buildRailItem(
+                                  index: 0,
+                                  icon: Icons.favorite,
+                                  unselectedIcon: Icons.favorite_border,
+                                  label: 'Favourites',
+                                  isSelected: activeIndex == 0,
+                                ),
+                                const SizedBox(height: 6),
+                              ],
+                              if (sync.syncCallLogsEnabled) ...[
+                                _buildRailItem(
+                                  index: 1,
+                                  icon: Icons.history,
+                                  unselectedIcon: Icons.history_outlined,
+                                  label: 'Calls',
+                                  isSelected: activeIndex == 1,
+                                ),
+                                const SizedBox(height: 6),
+                              ],
+                              if (sync.syncContactsEnabled) ...[
+                                _buildRailItem(
+                                  index: 2,
+                                  icon: Icons.person,
+                                  unselectedIcon: Icons.person_outline,
+                                  label: 'Contacts',
+                                  isSelected: activeIndex == 2,
+                                ),
+                                const SizedBox(height: 6),
+                              ],
+                              if (sync.syncSmsEnabled) ...[
+                                _buildRailItem(
+                                  index: 3,
+                                  icon: Icons.chat,
+                                  unselectedIcon: Icons.chat_bubble_outline,
+                                  label: 'SMS',
+                                  isSelected: activeIndex == 3,
+                                ),
+                                const SizedBox(height: 6),
+                              ],
+                              if (sync.syncNotesEnabled) ...[
+                                _buildRailItem(
+                                  index: 4,
+                                  icon: Icons.note_alt,
+                                  unselectedIcon: Icons.note_alt_outlined,
+                                  label: 'Notes',
+                                  isSelected: activeIndex == 4,
+                                ),
+                                const SizedBox(height: 6),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Settings button at bottom of rail
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: IconButton(
+                          icon: const Icon(Icons.tune),
+                          tooltip: 'Settings',
+                          iconSize: 24,
+                          color: colorScheme.onSurfaceVariant,
+                          onPressed: widget.onOpenSettings,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                contentArea,
+              ],
+            );
+          },
         );
       },
     );
@@ -658,6 +763,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     );
 
     setState(() {
+      _previousIndex = _selectedIndex;
       _selectedIndex = 3; // Switch to SMS tab
       if (existingIndex != -1) {
         _selectedSmsThreadId = widget.syncService.smsThreads[existingIndex].id;
@@ -832,6 +938,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   void _showNewMessageDialog(BuildContext context, {String? initialNumber}) {
     setState(() {
       _isNewMessageActive = true;
+      _previousIndex = _selectedIndex;
       _selectedIndex = 3;
       _newMessageSearchQuery = initialNumber ?? '';
       _newMessageSearchController.text = initialNumber ?? '';
@@ -864,11 +971,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
+        onTap: () => _changeTab(index),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8.0),
           width: double.infinity,
@@ -921,7 +1024,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     final isListView = widget.syncService.favoritesInList;
 
     return Padding(
-      padding: const EdgeInsets.all(20.0),
+      padding: EdgeInsets.symmetric(
+        horizontal: _isMobileView ? 14.0 : 20.0,
+        vertical: 16.0,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -971,6 +1077,15 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       widget.syncService.setFavoritesInList(!isListView);
                     },
                   ),
+                  if (_isMobileView) ...[
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(Icons.tune),
+                      tooltip: 'Settings',
+                      color: colorScheme.onSurfaceVariant,
+                      onPressed: widget.onOpenSettings,
+                    ),
+                  ],
                 ],
               ),
             ],
@@ -1014,6 +1129,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       color: colorScheme.surfaceContainerLow,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(
+                          color: colorScheme.outlineVariant.withValues(alpha: 0.25),
+                          width: 1,
+                        ),
                       ),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(16),
@@ -1099,14 +1218,17 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             Expanded(
               child: GridView.builder(
                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 140,
+                  maxCrossAxisExtent: 155,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
-                  childAspectRatio: 0.82,
+                  childAspectRatio: 0.75,
                 ),
                 itemCount: favourites.length,
                 itemBuilder: (context, index) {
                   final contact = favourites[index];
+                  final imageProvider = SmoothContactAvatar.getImageProvider(contact.photoBase64);
+                  final hasPhoto = imageProvider != null;
+
                   return GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onSecondaryTapDown: (details) => _showFavouriteContextMenu(context, details.globalPosition, contact),
@@ -1117,6 +1239,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       clipBehavior: Clip.antiAlias,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
+                        side: BorderSide(
+                          color: colorScheme.outlineVariant.withValues(alpha: 0.35),
+                          width: 1,
+                        ),
                       ),
                       child: InkWell(
                         onTap: () {
@@ -1127,59 +1253,107 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           );
                         },
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            AspectRatio(
-                              aspectRatio: 1.0,
+                            // Top Banner / Avatar Container
+                            Expanded(
                               child: Stack(
+                                fit: StackFit.expand,
                                 children: [
-                                  ClipRRect(
-                                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                                    child: SizedBox.expand(
-                                      child: SmoothContactAvatar(
-                                        radius: 60,
-                                        photoBase64: contact.photoBase64,
-                                        initials: contact.initials,
-                                        backgroundColor: colorScheme.primaryContainer,
-                                        foregroundColor: colorScheme.onPrimaryContainer,
+                                  if (hasPhoto)
+                                    Image(
+                                      image: imageProvider,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      gaplessPlayback: true,
+                                      errorBuilder: (_, _, _) => _buildFallbackBanner(contact, colorScheme),
+                                    )
+                                  else
+                                    _buildFallbackBanner(contact, colorScheme),
+
+                                  // Subtle bottom scrim on photo for contrast
+                                  if (hasPhoto)
+                                    Positioned.fill(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                              Colors.transparent,
+                                              Colors.black.withValues(alpha: 0.28),
+                                            ],
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                  ),
+
+                                  // Quick Call Action Badge
                                   Positioned(
-                                    bottom: 6,
-                                    right: 6,
-                                    child: Container(
-                                      width: 24,
-                                      height: 24,
-                                      decoration: BoxDecoration(
-                                        color: colorScheme.primaryContainer.withValues(alpha: 0.85),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        Icons.call,
-                                        size: 12,
-                                        color: colorScheme.onPrimaryContainer,
+                                    bottom: 8,
+                                    right: 8,
+                                    child: Material(
+                                      color: colorScheme.primary,
+                                      shape: const CircleBorder(),
+                                      elevation: 3,
+                                      child: InkWell(
+                                        customBorder: const CircleBorder(),
+                                        onTap: () {
+                                          _initiateCall(
+                                            contact.phone,
+                                            displayName: contact.name,
+                                            photoBase64: contact.photoBase64,
+                                          );
+                                        },
+                                        child: SizedBox(
+                                          width: 28,
+                                          height: 28,
+                                          child: Icon(
+                                            Icons.call,
+                                            size: 15,
+                                            color: colorScheme.onPrimary,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            Expanded(
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                                  child: Text(
+
+                            // Bottom Details Container
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
                                     contact.name,
-                                    style: const TextStyle(
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w600,
+                                    style: theme.textTheme.labelMedium?.copyWith(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: colorScheme.onSurface,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     textAlign: TextAlign.center,
                                   ),
-                                ),
+                                  if (contact.phone.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      contact.phone,
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        fontSize: 10.5,
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ],
@@ -1191,6 +1365,28 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFallbackBanner(SyncedContact contact, ColorScheme colorScheme) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            colorScheme.primaryContainer.withValues(alpha: 0.5),
+            colorScheme.surfaceContainerHigh,
+          ],
+        ),
+      ),
+      alignment: Alignment.center,
+      child: SmoothContactAvatar(
+        radius: 30,
+        initials: contact.initials,
+        backgroundColor: colorScheme.primaryContainer,
+        foregroundColor: colorScheme.onPrimaryContainer,
       ),
     );
   }
@@ -1264,102 +1460,131 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
 
     final groupedLogs = _groupLogsByDate(filteredLogs);
 
-    return Padding(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                'Call Logs',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurface,
-                ),
-              ),
-            ],
+    final filterChips = (syncedCallCategories.isNotEmpty
+        ? syncedCallCategories.map((c) => c.name).toList()
+        : [
+            'All',
+            'Known',
+            'Favourites',
+            'Unknown',
+            'Missed',
+            'Incoming',
+            'Outgoing',
+          ]).map((f) {
+      final isSelected = _callFilter == f;
+      return Padding(
+        padding: const EdgeInsets.only(right: 6.0),
+        child: FilterChip(
+          showCheckmark: false,
+          label: Text(f),
+          selected: isSelected,
+          onSelected: (_) {
+            setState(() {
+              _callFilter = f;
+            });
+          },
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
           ),
-          const SizedBox(height: 12),
+        ),
+      );
+    }).toList();
 
-          // Search and Filters
-          Row(
+    final searchField = TextField(
+      decoration: InputDecoration(
+        hintText: 'Search call logs...',
+        prefixIcon: Icon(Icons.search, size: 20, color: colorScheme.onSurfaceVariant),
+        suffixIcon: _callSearchQuery.isNotEmpty
+            ? IconButton(
+                icon: Icon(Icons.clear, size: 18, color: colorScheme.onSurfaceVariant),
+                onPressed: () {
+                  setState(() {
+                    _callSearchQuery = '';
+                  });
+                },
+              )
+            : null,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 10,
+        ),
+        filled: true,
+        fillColor: colorScheme.surfaceContainer,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+      ),
+      onChanged: (val) {
+        setState(() {
+          _callSearchQuery = val;
+        });
+      },
+    );
+
+    return Stack(
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: _isMobileView ? 14.0 : 20.0,
+            vertical: 16.0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 250,
-                child: TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Search call logs...',
-                    prefixIcon: Icon(Icons.search, size: 20, color: colorScheme.onSurfaceVariant),
-                    suffixIcon: _callSearchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: Icon(Icons.clear, size: 18, color: colorScheme.onSurfaceVariant),
-                            onPressed: () {
-                              setState(() {
-                                _callSearchQuery = '';
-                              });
-                            },
-                          )
-                        : null,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    filled: true,
-                    fillColor: colorScheme.surfaceContainer,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Call Logs',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  onChanged: (val) {
-                    setState(() {
-                      _callSearchQuery = val;
-                    });
-                  },
-                ),
+                  if (_isMobileView)
+                    IconButton(
+                      icon: const Icon(Icons.settings_outlined),
+                      tooltip: 'Settings',
+                      onPressed: widget.onOpenSettings,
+                    ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SingleChildScrollView(
+              const SizedBox(height: 12),
+
+              // Search and Filters
+              if (_isMobileView) ...[
+                searchField,
+                const SizedBox(height: 10),
+                SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: (syncedCallCategories.isNotEmpty
-                        ? syncedCallCategories.map((c) => c.name).toList()
-                        : [
-                            'All',
-                            'Known',
-                            'Favourites',
-                            'Unknown',
-                            'Missed',
-                            'Incoming',
-                            'Outgoing',
-                          ]).map((f) {
-                      final isSelected = _callFilter == f;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 6.0),
-                        child: FilterChip(
-                          showCheckmark: false,
-                          label: Text(f),
-                          selected: isSelected,
-                          onSelected: (_) {
-                            setState(() {
-                              _callFilter = f;
-                            });
-                          },
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                      );
-                    }).toList(),
+                    children: filterChips,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+              ] else ...[
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 250,
+                      child: searchField,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: filterChips,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 16),
 
           Expanded(
             child: filteredLogs.isEmpty
@@ -1425,7 +1650,27 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           ),
         ],
       ),
-    );
+    ),
+    Positioned(
+      right: _isMobileView ? 16 : 24,
+      bottom: _isMobileView ? 16 : 24,
+      child: _isMobileView
+          ? FloatingActionButton(
+              onPressed: () => _showDialDialog(context),
+              backgroundColor: colorScheme.primaryContainer,
+              foregroundColor: colorScheme.onPrimaryContainer,
+              child: const Icon(Icons.dialpad),
+            )
+          : FloatingActionButton.extended(
+              onPressed: () => _showDialDialog(context),
+              icon: const Icon(Icons.dialpad),
+              label: const Text('Dialpad'),
+              backgroundColor: colorScheme.primaryContainer,
+              foregroundColor: colorScheme.onPrimaryContainer,
+            ),
+    ),
+  ],
+);
   }
 
   Widget _buildCallLogTile(SyncedCallLog log) {
@@ -1511,10 +1756,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           child: Row(
             children: [
               if (hasContactName && log.number.isNotEmpty) ...[
-                Text(
-                  log.number,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
+                Flexible(
+                  child: Text(
+                    log.number,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -1696,124 +1945,157 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       },
     );
 
+    final groupChips = [
+      // "All" chip
+      Padding(
+        padding: const EdgeInsets.only(right: 6.0),
+        child: FilterChip(
+          showCheckmark: false,
+          avatar: const Icon(Icons.people_outline_rounded, size: 16),
+          label: const Text('All'),
+          selected: _selectedContactGroupId == null,
+          onSelected: (_) {
+            setState(() {
+              _selectedContactGroupId = null;
+            });
+          },
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
+      ),
+      // Groups chips
+      ...contactGroups.map((grp) {
+        final isSelected = _selectedContactGroupId == grp.id;
+        return Padding(
+          padding: const EdgeInsets.only(right: 6.0),
+          child: FilterChip(
+            showCheckmark: false,
+            avatar: const Icon(Icons.group_outlined, size: 16),
+            label: Text(grp.name),
+            selected: isSelected,
+            onSelected: (_) {
+              setState(() {
+                _selectedContactGroupId = isSelected ? null : grp.id;
+              });
+            },
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+        );
+      }),
+      // "Ungrouped" chip
+      Padding(
+        padding: const EdgeInsets.only(right: 6.0),
+        child: FilterChip(
+          showCheckmark: false,
+          avatar: const Icon(Icons.person_outline_rounded, size: 16),
+          label: const Text('Ungrouped'),
+          selected: _selectedContactGroupId == '__ungrouped__',
+          onSelected: (_) {
+            setState(() {
+              _selectedContactGroupId =
+                  _selectedContactGroupId == '__ungrouped__' ? null : '__ungrouped__';
+            });
+          },
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
+      ),
+    ];
+
     return Padding(
-      padding: const EdgeInsets.all(20.0),
+      padding: EdgeInsets.symmetric(
+        horizontal: _isMobileView ? 14.0 : 20.0,
+        vertical: 16.0,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Contacts',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurface,
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        'Contacts',
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        contactsCountText,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onPrimaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(16),
+              if (_isMobileView)
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: 'Settings',
+                  onPressed: widget.onOpenSettings,
                 ),
-                child: Text(
-                  contactsCountText,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.onPrimaryContainer,
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
 
           // Search and Groups Filter
-          Row(
-            children: [
-              if (contactGroups.isNotEmpty)
-                SizedBox(
-                  width: 250,
-                  child: searchTextField,
-                )
-              else
-                Expanded(
-                  child: searchTextField,
+          if (_isMobileView) ...[
+            searchTextField,
+            if (contactGroups.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: groupChips,
                 ),
-              if (contactGroups.isNotEmpty) ...[
-                const SizedBox(width: 12),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        // "All" chip
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6.0),
-                          child: FilterChip(
-                            showCheckmark: false,
-                            avatar: const Icon(Icons.people_outline_rounded, size: 16),
-                            label: const Text('All'),
-                            selected: _selectedContactGroupId == null,
-                            onSelected: (_) {
-                              setState(() {
-                                _selectedContactGroupId = null;
-                              });
-                            },
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                          ),
-                        ),
-                        // Groups chips
-                        ...contactGroups.map((grp) {
-                          final isSelected = _selectedContactGroupId == grp.id;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 6.0),
-                            child: FilterChip(
-                              showCheckmark: false,
-                              avatar: const Icon(Icons.group_outlined, size: 16),
-                              label: Text(grp.name),
-                              selected: isSelected,
-                              onSelected: (_) {
-                                setState(() {
-                                  _selectedContactGroupId = isSelected ? null : grp.id;
-                                });
-                              },
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                          );
-                        }),
-                        // "Ungrouped" chip
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6.0),
-                          child: FilterChip(
-                            showCheckmark: false,
-                            avatar: const Icon(Icons.person_outline_rounded, size: 16),
-                            label: const Text('Ungrouped'),
-                            selected: _selectedContactGroupId == '__ungrouped__',
-                            onSelected: (_) {
-                              setState(() {
-                                _selectedContactGroupId =
-                                    _selectedContactGroupId == '__ungrouped__' ? null : '__ungrouped__';
-                              });
-                            },
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                          ),
-                        ),
-                      ],
+              ),
+            ],
+          ] else ...[
+            Row(
+              children: [
+                if (contactGroups.isNotEmpty)
+                  SizedBox(
+                    width: 250,
+                    child: searchTextField,
+                  )
+                else
+                  Expanded(
+                    child: searchTextField,
+                  ),
+                if (contactGroups.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: groupChips,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
-          ),
+            ),
+          ],
           const SizedBox(height: 16),
 
           if (filtered.isEmpty)
@@ -2088,7 +2370,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         // Scrollable Body
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            padding: EdgeInsets.symmetric(
+              horizontal: _isMobileView ? 16.0 : 24.0,
+              vertical: 16.0,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -2097,8 +2382,8 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   alignment: Alignment.center,
                   children: [
                     Container(
-                      width: 200,
-                      height: 200,
+                      width: _isMobileView ? 140 : 200,
+                      height: _isMobileView ? 140 : 200,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: RadialGradient(
@@ -2110,7 +2395,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       ),
                     ),
                     SmoothContactAvatar(
-                      radius: 80,
+                      radius: _isMobileView ? 55 : 80,
                       photoBase64: contact.photoBase64,
                       initials: contact.initials,
                       backgroundColor: colorScheme.primaryContainer,
@@ -2959,6 +3244,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       fontWeight: FontWeight.bold,
                       color: colorScheme.onSurface,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 IconButton(
@@ -2972,6 +3258,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     });
                   },
                 ),
+                if (_isMobileView)
+                  IconButton(
+                    icon: const Icon(Icons.settings_outlined),
+                    tooltip: 'Settings',
+                    onPressed: widget.onOpenSettings,
+                  ),
               ],
             ),
             const SizedBox(height: 32),
@@ -3183,6 +3475,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         fontWeight: FontWeight.bold,
                         color: colorScheme.onSurface,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   IconButton(
@@ -3196,6 +3489,12 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       });
                     },
                   ),
+                  if (_isMobileView)
+                    IconButton(
+                      icon: const Icon(Icons.settings_outlined),
+                      tooltip: 'Settings',
+                      onPressed: widget.onOpenSettings,
+                    ),
                 ],
               ),
             ),
@@ -3730,18 +4029,23 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     }).toList();
 
     return Padding(
-      padding: const EdgeInsets.all(20.0),
+      padding: EdgeInsets.symmetric(
+        horizontal: _isMobileView ? 14.0 : 20.0,
+        vertical: 16.0,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Notes',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurface,
+              Expanded(
+                child: Text(
+                  'Notes',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSurface,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               FilledButton.tonalIcon(
@@ -3749,6 +4053,14 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 label: const Text('Add Note'),
                 onPressed: _showAddNoteDialog,
               ),
+              if (_isMobileView) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: 'Settings',
+                  onPressed: widget.onOpenSettings,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
@@ -4170,6 +4482,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         switch (action) {
           case 'view_contact':
             setState(() {
+              _previousIndex = _selectedIndex;
               _selectedIndex = 2;
               _selectedContactForDetails = contact;
             });
@@ -4275,6 +4588,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           case 'view_contact':
             if (matchingContact != null) {
               setState(() {
+                _previousIndex = _selectedIndex;
                 _selectedIndex = 2;
                 _selectedContactForDetails = matchingContact;
               });
@@ -4385,6 +4699,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         switch (action) {
           case 'view_contact':
             setState(() {
+              _previousIndex = _selectedIndex;
               _selectedIndex = 2;
               _selectedContactForDetails = contact;
             });

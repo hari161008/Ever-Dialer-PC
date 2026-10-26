@@ -460,6 +460,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                     fontWeight: FontWeight.bold,
                     color: colorScheme.onSurface,
                   ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               actions: [
@@ -492,6 +493,7 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                   fontWeight: FontWeight.bold,
                   color: colorScheme.onSurface,
                 ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             actions: [

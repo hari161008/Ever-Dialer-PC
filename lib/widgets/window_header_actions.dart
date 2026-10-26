@@ -253,19 +253,26 @@ class WindowHeaderActions extends StatelessWidget {
                 },
               );
 
+              final screenWidth = MediaQuery.sizeOf(context).width;
+              final isNarrow = screenWidth < 580;
+              final isVeryNarrow = screenWidth < 460;
+
               // 3. Phone Wi-Fi Strength (Consistent Icon, No Gaps)
+              final bool showWifi = !isVeryNarrow || (isConnected && telem.isWifiConnected);
               final wifiTooltip = isConnected
                   ? (telem.isWifiConnected
                       ? 'Phone Wi-Fi: Connected (${telem.wifiLevel >= 0 ? "${telem.wifiLevel}/4" : "Active"})'
                       : 'Phone Wi-Fi: Disconnected')
                   : 'Phone Wi-Fi: Disconnected';
-              final wifiWidget = Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                child: Tooltip(
-                  message: wifiTooltip,
-                  child: _buildWifiWidget(context, telem.wifiLevel, isConnected && telem.isWifiConnected),
-                ),
-              );
+              final Widget? wifiWidget = showWifi
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2.5),
+                      child: Tooltip(
+                        message: wifiTooltip,
+                        child: _buildWifiWidget(context, telem.wifiLevel, isConnected && telem.isWifiConnected),
+                      ),
+                    )
+                  : null;
 
               // 4. Hotspot Icon (Beside Wi-Fi, only visible when on)
               final Widget? hotspotWidget;
@@ -286,22 +293,25 @@ class WindowHeaderActions extends StatelessWidget {
               }
 
               // 5. Phone Cellular Signal Strength (Consistent Triangle, No Line Gaps)
+              final bool showCell = !isVeryNarrow || isConnected;
               final cellTooltip = isConnected
                   ? (telem.cellularLevel >= 0
                       ? 'Phone Signal: ${telem.cellularLevel}/4'
                       : 'Phone Signal: No Service')
                   : 'Phone Signal: Disconnected';
-              final cellWidget = Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                child: Tooltip(
-                  message: cellTooltip,
-                  child: _buildCellularWidget(context, telem.cellularLevel, isConnected),
-                ),
-              );
+              final Widget? cellWidget = showCell
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2.5),
+                      child: Tooltip(
+                        message: cellTooltip,
+                        child: _buildCellularWidget(context, telem.cellularLevel, isConnected),
+                      ),
+                    )
+                  : null;
 
               // 6. Network Data Type Badge (4G / 5G / LTE beside SIM icon)
               final Widget? dataBadge;
-              if (isConnected && telem.dataNetworkType.isNotEmpty) {
+              if (!isNarrow && isConnected && telem.dataNetworkType.isNotEmpty) {
                 dataBadge = Padding(
                   padding: const EdgeInsets.only(right: 3.0),
                   child: Tooltip(
@@ -338,7 +348,10 @@ class WindowHeaderActions extends StatelessWidget {
                   ? 'Phone Battery: ${telem.batteryLevel}%${telem.isBatteryCharging ? " (Charging)" : ""}'
                   : 'Phone Battery: Disconnected';
               final batteryWidget = Padding(
-                padding: const EdgeInsets.only(left: 3.0, right: 8.0),
+                padding: EdgeInsets.only(
+                  left: 2.0,
+                  right: isNarrow ? 4.0 : 8.0,
+                ),
                 child: Tooltip(
                   message: batteryTooltip,
                   child: Row(
@@ -353,17 +366,19 @@ class WindowHeaderActions extends StatelessWidget {
                                 : colorScheme.primary)
                             : colorScheme.outline.withValues(alpha: 0.6),
                       ),
-                      const SizedBox(width: 3),
-                      Text(
-                        batteryText,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                          color: isConnected && telem.batteryLevel >= 0
-                              ? colorScheme.onSurface
-                              : colorScheme.outline,
+                      if (!isNarrow) ...[
+                        const SizedBox(width: 3),
+                        Text(
+                          batteryText,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: isConnected && telem.batteryLevel >= 0
+                                ? colorScheme.onSurface
+                                : colorScheme.outline,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -374,9 +389,9 @@ class WindowHeaderActions extends StatelessWidget {
                 children: [
                   bluetoothWidget,
                   volumeWidget,
-                  wifiWidget,
+                  ?wifiWidget,
                   ?hotspotWidget,
-                  cellWidget,
+                  ?cellWidget,
                   ?dataBadge,
                   batteryWidget,
                 ],
