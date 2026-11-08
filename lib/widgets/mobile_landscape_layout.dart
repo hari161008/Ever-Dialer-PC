@@ -534,46 +534,60 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               );
             }
 
-            // Main Content Area with Slow, Smooth Section Switching Animation matching mobile TabTransitionStyle
+            // Main Content Area with Snappy, Smooth Material 3 Shared Axis & Fade-Through Transition
             final contentArea = Expanded(
               child: Material(
                 color: colorScheme.surface,
                 child: ClipRect(
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 550),
-                    switchInCurve: const Cubic(0.25, 1.0, 0.5, 1.0),
-                    switchOutCurve: const Cubic(0.25, 1.0, 0.5, 1.0),
+                    duration: const Duration(milliseconds: 260),
+                    switchInCurve: const Cubic(0.05, 0.7, 0.1, 1.0),
+                    switchOutCurve: Curves.easeInQuad,
                     layoutBuilder: (currentChild, previousChildren) {
                       return Stack(
                         fit: StackFit.expand,
                         children: [
-                          ...previousChildren,
+                          ...previousChildren.map((child) => IgnorePointer(child: child)),
                           ?currentChild,
                         ],
                       );
                     },
                     transitionBuilder: (child, animation) {
                       final isIncoming = child.key == ValueKey<int>(activeIndex);
-                      final curved = CurvedAnimation(
-                        parent: animation,
-                        curve: const Cubic(0.25, 1.0, 0.5, 1.0),
-                      );
-                      final offsetTween = isIncoming
-                          ? Tween<Offset>(
-                              begin: Offset(direction * 0.25, 0.0),
-                              end: Offset.zero,
-                            )
-                          : Tween<Offset>(
-                              begin: Offset(-direction * 0.25, 0.0),
-                              end: Offset.zero,
-                            );
-                      return SlideTransition(
-                        position: offsetTween.animate(curved),
-                        child: FadeTransition(
-                          opacity: curved,
-                          child: child,
-                        ),
-                      );
+                      if (isIncoming) {
+                        final curved = CurvedAnimation(
+                          parent: animation,
+                          curve: const Cubic(0.05, 0.7, 0.1, 1.0),
+                        );
+                        return FadeTransition(
+                          opacity: CurvedAnimation(
+                            parent: animation,
+                            curve: const Interval(0.15, 1.0, curve: Curves.easeOut),
+                          ),
+                          child: ScaleTransition(
+                            scale: Tween<double>(begin: 0.985, end: 1.0).animate(curved),
+                            child: SlideTransition(
+                              position: Tween<Offset>(
+                                begin: Offset(direction * 0.035, 0.0),
+                                end: Offset.zero,
+                              ).animate(curved),
+                              child: child,
+                            ),
+                          ),
+                        );
+                      } else {
+                        final curvedOut = CurvedAnimation(
+                          parent: animation,
+                          curve: const Interval(0.0, 0.6, curve: Curves.easeInQuad),
+                        );
+                        return FadeTransition(
+                          opacity: curvedOut,
+                          child: ScaleTransition(
+                            scale: Tween<double>(begin: 0.985, end: 1.0).animate(curvedOut),
+                            child: child,
+                          ),
+                        );
+                      }
                     },
                     child: KeyedSubtree(
                       key: ValueKey<int>(activeIndex),
@@ -1857,15 +1871,17 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
-  // 3. Contacts View
-  // ═════════════════════════════════════════════════════════════════════════
   Widget _buildContactsView() {
     if (_selectedContactForDetails != null) {
-      final currentContact = widget.syncService.contacts.firstWhere(
-        (c) => c.id == _selectedContactForDetails!.id,
-        orElse: () => _selectedContactForDetails!,
-      );
-      return _buildContactInfoView(currentContact);
+      final exists = widget.syncService.contacts.any((c) => c.id == _selectedContactForDetails!.id);
+      if (exists) {
+        final currentContact = widget.syncService.contacts.firstWhere(
+          (c) => c.id == _selectedContactForDetails!.id,
+        );
+        return _buildContactInfoView(currentContact);
+      } else {
+        _selectedContactForDetails = null;
+      }
     }
 
     final theme = Theme.of(context);
@@ -3337,10 +3353,13 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               (t) => t?.id == _selectedSmsThreadId,
               orElse: () => null,
             );
+            if (activeThread == null) {
+              _selectedSmsThreadId = null;
+            }
           }
 
           // If on wide screens, default to first thread if nothing selected or not found
-          if (!isCompact && activeThread == null) {
+          if (!isCompact && activeThread == null && filteredThreads.isNotEmpty) {
             activeThread = filteredThreads.first;
             _selectedSmsThreadId = activeThread.id;
           }

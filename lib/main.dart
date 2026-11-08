@@ -74,10 +74,18 @@ class _EverDialerAppState extends State<EverDialerApp> {
       _systemService = SystemService(prefs: widget.prefs);
       _ownsSystemService = true;
     }
+
+    _bluetoothService.addListener(_onBluetoothDeviceChanged);
+    _syncService.onConnectedDeviceChanged(_bluetoothService.state.connectedDevice);
+  }
+
+  void _onBluetoothDeviceChanged() {
+    _syncService.onConnectedDeviceChanged(_bluetoothService.state.connectedDevice);
   }
 
   @override
   void dispose() {
+    _bluetoothService.removeListener(_onBluetoothDeviceChanged);
     if (_ownsSyncService) _syncService.dispose();
     if (_ownsBluetoothService) _bluetoothService.dispose();
     if (_ownsSystemService) _systemService.dispose();
@@ -239,6 +247,13 @@ class _EverDialerAppState extends State<EverDialerApp> {
                   horizontal: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
                   vertical: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
                 ),
+                pageTransitionsTheme: const PageTransitionsTheme(
+                  builders: {
+                    TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
+                    TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+                    TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+                  },
+                ),
               ),
               darkTheme: ThemeData(
                 useMaterial3: true,
@@ -259,6 +274,13 @@ class _EverDialerAppState extends State<EverDialerApp> {
                 visualDensity: VisualDensity(
                   horizontal: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
                   vertical: ((displayScale.clamp(0.4, 2.0) - 1.0) * 4).clamp(-4.0, 4.0),
+                ),
+                pageTransitionsTheme: const PageTransitionsTheme(
+                  builders: {
+                    TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
+                    TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+                    TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+                  },
                 ),
               ),
               builder: (context, child) {
@@ -390,10 +412,18 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
         _bluetoothService.toggleSpeakerMode(unified);
       }
     }
+
+    _bluetoothService.addListener(_onBluetoothDeviceChanged);
+    _syncService.onConnectedDeviceChanged(_bluetoothService.state.connectedDevice);
+  }
+
+  void _onBluetoothDeviceChanged() {
+    _syncService.onConnectedDeviceChanged(_bluetoothService.state.connectedDevice);
   }
 
   @override
   void dispose() {
+    _bluetoothService.removeListener(_onBluetoothDeviceChanged);
     if (_ownsService) {
       _bluetoothService.dispose();
     }

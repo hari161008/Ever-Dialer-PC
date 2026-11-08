@@ -9,6 +9,7 @@ import '../widgets/window_header_actions.dart';
 import 'appearance_screen.dart';
 import 'about_screen.dart';
 import 'system_audio_screen.dart';
+import 'uninstall_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final BluetoothService bluetoothService;
@@ -240,6 +241,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
+          const SizedBox(height: 14),
+
+          // ── 5. Uninstall Section ───────────────────────────────
+          const RivoSectionHeader(title: 'Uninstall'),
+          RivoExpressiveCard(
+            color: isWideScreen && _selectedSection == 'uninstall'
+                ? colorScheme.errorContainer.withValues(alpha: 0.35)
+                : null,
+            child: RivoListItem(
+              headline: 'Uninstall Ever Dialer',
+              supporting: 'Remove shortcuts, daemon, autostart, and local data',
+              leadingIcon: Icons.delete_forever_outlined,
+              iconColor: colorScheme.error,
+              onClick: () {
+                if (isWideScreen) {
+                  _navigateToDetail('uninstall');
+                } else {
+                  _pushScreen(UninstallScreen(
+                    systemService: widget.systemService,
+                    syncService: widget.syncService,
+                  ));
+                }
+              },
+            ),
+          ),
+
           const SizedBox(height: 24),
         ],
       ),
@@ -257,6 +284,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return SystemAudioScreen(
           systemService: widget.systemService,
           bluetoothService: widget.bluetoothService,
+          syncService: widget.syncService,
+          isPane: true,
+        );
+      case 'uninstall':
+        return UninstallScreen(
+          systemService: widget.systemService,
           syncService: widget.syncService,
           isPane: true,
         );

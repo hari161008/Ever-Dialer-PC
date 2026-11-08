@@ -662,6 +662,9 @@ class PcSyncService extends ChangeNotifier {
   bool _isConnected = false;
   bool get isConnected => _isConnected;
 
+  String? _currentConnectedMac;
+  String? get currentConnectedMac => _currentConnectedMac;
+
   String? _connectedDeviceName;
   String? get connectedDeviceName => _connectedDeviceName;
 
@@ -863,6 +866,90 @@ class PcSyncService extends ChangeNotifier {
     }
   }
 
+  void onConnectedDeviceChanged(dynamic device) {
+    // device is BluetoothDevice from bluetooth_service.dart or has mac/name
+    final String? newMac = device?.mac as String?;
+    final String? newName = device?.name as String?;
+    final bool deviceIsConnected = device != null && (device.connected == true);
+
+    debugPrint('[PcSyncService] onConnectedDeviceChanged: mac=$newMac, name=$newName, conn=$deviceIsConnected (currentMac=$_currentConnectedMac)');
+
+    if (newMac != null && newMac.isNotEmpty) {
+      if (newMac != _currentConnectedMac) {
+        _onDifferentPhoneConnected(newMac, newName ?? 'Phone');
+      } else if (deviceIsConnected && !_isConnected) {
+        _isConnected = true;
+        notifyListeners();
+        requestSyncNow();
+        requestTelemetryNow();
+      }
+    } else {
+      // Disconnected from Bluetooth
+      if (_isConnected) {
+        _isConnected = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _onDifferentPhoneConnected(String mac, String name) {
+    final oldMac = _currentConnectedMac;
+    _currentConnectedMac = mac;
+    _connectedDeviceName = name;
+    _isConnected = true;
+
+    debugPrint('[PcSyncService] Switching connected phone from $oldMac to $mac ($name)');
+
+    // Attempt to load previously saved cache for this specific phone
+    final deviceKey = 'pc_sync_cached_data_v2_$mac';
+    final cachedForDevice = _prefs?.getString(deviceKey);
+    if (cachedForDevice != null && cachedForDevice.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(cachedForDevice);
+        if (decoded is Map<String, dynamic>) {
+          debugPrint('[PcSyncService] Restored cache for device $mac ($name)');
+          _applyPayload(decoded, saveCache: false);
+        } else {
+          _clearPhoneData();
+        }
+      } catch (e) {
+        debugPrint('[PcSyncService] Error loading cache for device $mac: $e');
+        _clearPhoneData();
+      }
+    } else {
+      debugPrint('[PcSyncService] No prior cache found for device $mac ($name). Purging previous phone data.');
+      _clearPhoneData();
+    }
+
+    notifyListeners();
+
+    // Immediately request the newly connected phone to connect and sync
+    _sendCommand({
+      'cmd': 'connect',
+      'mac': mac,
+      'name': name,
+    });
+    requestSyncNow();
+    requestTelemetryNow();
+  }
+
+  void _clearPhoneData() {
+    _contacts = [];
+    _contactGroups = [];
+    _callLogs = [];
+    _smsThreads = [];
+    _smsCategories = [];
+    _callCategories = [];
+    _notes = [];
+    _phonePhotoCache.clear();
+    _starredSmsMessageIds.clear();
+    _pinnedSmsMessageIds.clear();
+    _pinnedSmsThreadIds.clear();
+    _phoneThemeColor = null;
+    _telemetry = const SyncedTelemetry();
+    _prefs?.remove('last_synced_theme_color');
+  }
+
   void _saveCachedData() {
     if (_prefs == null) return;
     try {
@@ -887,8 +974,15 @@ class PcSyncService extends ChangeNotifier {
         'favoritesInList': _favoritesInList,
         'lastSyncTime': _lastSyncTime?.millisecondsSinceEpoch,
         'deviceName': _connectedDeviceName,
+        'mac': _currentConnectedMac,
       };
-      _prefs?.setString(_prefCachedDataKey, jsonEncode(payload));
+      final encoded = jsonEncode(payload);
+      _prefs?.setString(_prefCachedDataKey, encoded);
+
+      final targetMac = _currentConnectedMac;
+      if (targetMac != null && targetMac.isNotEmpty) {
+        _prefs?.setString('pc_sync_cached_data_v2_$targetMac', encoded);
+      }
     } catch (e) {
       debugPrint('[PcSyncService] Error saving sync cache: $e');
     }
@@ -978,9 +1072,22 @@ class PcSyncService extends ChangeNotifier {
 
       final event = data['event'];
       if (event == 'status') {
-        _isConnected = data['connected'] == true;
+        final connected = data['connected'] == true;
+        _isConnected = connected;
         if (data['device'] != null) {
           _connectedDeviceName = data['device'].toString();
+        }
+        final mac = data['mac']?.toString();
+        if (mac != null && mac.isNotEmpty) {
+          if (_currentConnectedMac != null && _currentConnectedMac != mac) {
+            _onDifferentPhoneConnected(mac, _connectedDeviceName ?? 'Phone');
+            return;
+          }
+          _currentConnectedMac = mac;
+        }
+        if (_isConnected) {
+          requestSyncNow();
+          requestTelemetryNow();
         }
         notifyListeners();
       } else if (event == 'sync_data') {
@@ -1077,6 +1184,9 @@ class PcSyncService extends ChangeNotifier {
     }
 
     // Sync pinned and starred IDs from payload and individual messages
+    _starredSmsMessageIds.clear();
+    _pinnedSmsMessageIds.clear();
+    _pinnedSmsThreadIds.clear();
     for (final thread in _smsThreads) {
       if (thread.isPinned) _pinnedSmsThreadIds.add(thread.id);
       for (final msg in thread.messages) {
@@ -1200,6 +1310,12 @@ class PcSyncService extends ChangeNotifier {
 
     if (payload.containsKey('deviceName')) {
       _connectedDeviceName = payload['deviceName']?.toString();
+    }
+    if (payload.containsKey('mac') && payload['mac'] != null) {
+      final pMac = payload['mac']?.toString();
+      if (pMac != null && pMac.isNotEmpty) {
+        _currentConnectedMac = pMac;
+      }
     }
 
     if (payload.containsKey('telemetry')) {

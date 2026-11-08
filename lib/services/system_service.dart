@@ -236,4 +236,173 @@ X-GNOME-Autostart-enabled=true
       debugPrint('[SystemService] Error applying system tray: $e');
     }
   }
+
+  Future<String?> detectSystemPackage() async {
+    try {
+      if (!Platform.isLinux) return null;
+      // 1. RPM (Fedora, RHEL, openSUSE)
+      final rpmCheck = await Process.run('bash', ['-c', 'command -v rpm >/dev/null 2>&1 && rpm -q ever-dialer-pc >/dev/null 2>&1']);
+      if (rpmCheck.exitCode == 0) return 'RPM Package (Fedora / RHEL / openSUSE)';
+
+      // 2. DEB (Debian, Ubuntu, Linux Mint, Pop!_OS)
+      final debCheck = await Process.run('bash', ['-c', 'command -v dpkg >/dev/null 2>&1 && dpkg -s ever-dialer-pc >/dev/null 2>&1']);
+      if (debCheck.exitCode == 0) return 'DEB Package (Debian / Ubuntu / Mint / Pop!_OS)';
+
+      // 3. Arch Linux / Manjaro / EndeavourOS
+      final archCheck = await Process.run('bash', ['-c', 'command -v pacman >/dev/null 2>&1 && pacman -Q ever-dialer-pc >/dev/null 2>&1']);
+      if (archCheck.exitCode == 0) return 'Arch Linux Package (pacman)';
+
+      // 4. Flatpak
+      final flatpakCheck = await Process.run('bash', ['-c', 'command -v flatpak >/dev/null 2>&1 && flatpak info com.everdialer.ever_dialer_pc >/dev/null 2>&1']);
+      if (flatpakCheck.exitCode == 0) return 'Flatpak Package';
+
+      // 5. Snap
+      final snapCheck = await Process.run('bash', ['-c', 'command -v snap >/dev/null 2>&1 && snap list ever-dialer-pc >/dev/null 2>&1']);
+      if (snapCheck.exitCode == 0) return 'Snap Package';
+
+      // 6. Manual root files in /opt or /usr
+      final sysFilesCheck = await Process.run('bash', ['-c', '[ -d "/opt/ever_dialer_pc" ] || [ -f "/usr/bin/ever_dialer_pc" ] || [ -f "/usr/local/bin/ever_dialer_pc" ] || [ -f "/usr/share/applications/ever_dialer_pc.desktop" ]']);
+      if (sysFilesCheck.exitCode == 0) return 'System Root Files (/opt or /usr)';
+
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> checkRpmInstalled() async => (await detectSystemPackage()) != null;
+
+  Future<bool> removeSystemPackage() async {
+    try {
+      if (!Platform.isLinux) return false;
+      final res = await Process.run('bash', [
+        '-c',
+        '''
+if command -v rpm >/dev/null 2>&1 && rpm -q ever-dialer-pc >/dev/null 2>&1; then
+  pkexec rpm -e ever-dialer-pc || pkexec dnf remove -y ever-dialer-pc 2>/dev/null || true
+elif command -v dpkg >/dev/null 2>&1 && dpkg -s ever-dialer-pc >/dev/null 2>&1; then
+  pkexec apt-get remove -y ever-dialer-pc || pkexec dpkg -r ever-dialer-pc 2>/dev/null || true
+elif command -v pacman >/dev/null 2>&1 && pacman -Q ever-dialer-pc >/dev/null 2>&1; then
+  pkexec pacman -R --noconfirm ever-dialer-pc 2>/dev/null || true
+elif command -v flatpak >/dev/null 2>&1 && flatpak info com.everdialer.ever_dialer_pc >/dev/null 2>&1; then
+  flatpak uninstall -y com.everdialer.ever_dialer_pc 2>/dev/null || true
+elif command -v snap >/dev/null 2>&1 && snap list ever-dialer-pc >/dev/null 2>&1; then
+  pkexec snap remove ever-dialer-pc 2>/dev/null || true
+fi
+
+# Clean any leftover system root directories/binaries if they exist
+if [ -d "/opt/ever_dialer_pc" ] || [ -f "/usr/bin/ever_dialer_pc" ] || [ -f "/usr/local/bin/ever_dialer_pc" ] || [ -f "/usr/share/applications/ever_dialer_pc.desktop" ]; then
+  pkexec rm -rf /opt/ever_dialer_pc /usr/bin/ever_dialer_pc /usr/local/bin/ever_dialer_pc /usr/share/applications/ever_dialer_pc.desktop /usr/share/icons/hicolor/*/apps/ever_dialer_pc.png 2>/dev/null || true
+fi
+'''
+      ]);
+      return res.exitCode == 0;
+    } catch (e) {
+      debugPrint('[SystemService] Error removing system package: $e');
+      return false;
+    }
+  }
+
+  Future<bool> removeRpmPackage() => removeSystemPackage();
+
+  Future<void> performUninstall({bool deleteSource = false, bool removeRpm = true, bool removeSysPackage = true}) async {
+    try {
+      if (!Platform.isLinux) return;
+      final home = Platform.environment['HOME'] ?? '';
+      if (home.isEmpty) return;
+
+      // 1. Terminate sync daemon
+      try {
+        await Process.run('pkill', ['-f', 'bt_sync_daemon.py']);
+      } catch (e) {
+        debugPrint('[SystemService] Error killing daemon: $e');
+      }
+
+      // 1.5 If a system package/root installation is detected, remove it using pkexec
+      if ((removeSysPackage || removeRpm) && (await detectSystemPackage()) != null) {
+        await removeSystemPackage();
+      }
+
+      // 2. Remove desktop shortcuts, symlinks, and autostart entries
+      try {
+        await Process.run('bash', [
+          '-c',
+          '''
+rm -f "$home/.local/share/applications/ever_dialer_pc.desktop"
+rm -f "$home/.local/share/applications/com.everdialer.ever_dialer_pc.desktop"
+rm -f "$home/.config/autostart/ever_dialer_pc.desktop"
+rm -f /tmp/everdialer_bt_sync.lock
+
+# If a system-wide desktop entry exists in /usr/share/applications, mask it
+# so it does not unmask and show up in the application drawer
+if [ -f "/usr/share/applications/ever_dialer_pc.desktop" ] || [ -f "/usr/local/share/applications/ever_dialer_pc.desktop" ]; then
+  cat << 'EOF' > "$home/.local/share/applications/ever_dialer_pc.desktop"
+[Desktop Entry]
+Type=Application
+Name=Ever Dialer PC
+NoDisplay=true
+Hidden=true
+EOF
+  cat << 'EOF' > "$home/.local/share/applications/com.everdialer.ever_dialer_pc.desktop"
+[Desktop Entry]
+Type=Application
+Name=Ever Dialer PC
+NoDisplay=true
+Hidden=true
+EOF
+fi
+
+# Refresh desktop application databases and caches
+update-desktop-database "$home/.local/share/applications" 2>/dev/null || true
+kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null || true
+rm -f "$home/.local/share/icons/hicolor/"*/apps/ever_dialer_pc.png 2>/dev/null || true
+gtk-update-icon-cache "$home/.local/share/icons/hicolor" 2>/dev/null || true
+'''
+        ]);
+      } catch (e) {
+        debugPrint('[SystemService] Error cleaning desktop entries: $e');
+      }
+
+      // 4. Remove local app cache, preferences and data
+      final dirsToDelete = [
+        '$home/.local/share/com.everdialer.ever_dialer_pc',
+        '$home/.config/ever_dialer_pc',
+      ];
+      for (final p in dirsToDelete) {
+        final d = Directory(p);
+        if (await d.exists()) {
+          try {
+            await d.delete(recursive: true);
+          } catch (_) {}
+        }
+      }
+
+      // 5. Delete source code / build directory if requested
+      if (deleteSource) {
+        final projectDir = Directory.current.path;
+        if (projectDir.isNotEmpty && projectDir != '/' && projectDir != home) {
+          await Process.run('bash', [
+            '-c',
+            'nohup sh -c "sleep 1 && rm -rf \\"$projectDir\\"" >/dev/null 2>&1 &'
+          ]);
+        }
+      }
+
+      // 6. Show desktop notification
+      try {
+        await Process.run('notify-send', [
+          'Ever Dialer PC',
+          'Ever Dialer PC uninstalled successfully.',
+          '-i',
+          'dialog-information',
+        ]);
+      } catch (_) {}
+
+      // 7. Exit app cleanly
+      exit(0);
+    } catch (e) {
+      debugPrint('[SystemService] Error performing uninstall: $e');
+      rethrow;
+    }
+  }
 }
