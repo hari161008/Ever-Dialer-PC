@@ -69,7 +69,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.bluetoothService,
         if (widget.syncService != null) widget.syncService!,
         if (widget.systemService != null) widget.systemService!,
-        widget.appearance,
       ]),
       builder: (context, _) {
         final state = widget.bluetoothService.state;
@@ -111,25 +110,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                         ),
-                        child: _buildMasterList(
-                          state: state,
-                          isWideScreen: true,
+                        child: RepaintBoundary(
+                          child: _buildMasterList(
+                            state: state,
+                            isWideScreen: true,
+                          ),
                         ),
                       ),
                     ),
 
                     // Right detail pane
                     Expanded(
-                      child: _buildDetailPane(state),
+                      child: RepaintBoundary(
+                        child: _buildDetailPane(state),
+                      ),
                     ),
                   ],
                 );
               }
 
               // Single pane layout for smaller screens
-              return _buildMasterList(
-                state: state,
-                isWideScreen: false,
+              return RepaintBoundary(
+                child: _buildMasterList(
+                  state: state,
+                  isWideScreen: false,
+                ),
               );
             },
           ),
@@ -277,11 +282,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     switch (_selectedSection) {
       case 'appearance':
         return AppearanceScreen(
+          key: const ValueKey('pane_appearance'),
           appearance: widget.appearance,
           isPane: true,
         );
       case 'system_audio':
         return SystemAudioScreen(
+          key: const ValueKey('pane_system_audio'),
           systemService: widget.systemService,
           bluetoothService: widget.bluetoothService,
           syncService: widget.syncService,
@@ -289,13 +296,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       case 'uninstall':
         return UninstallScreen(
+          key: const ValueKey('pane_uninstall'),
           systemService: widget.systemService,
           syncService: widget.syncService,
           isPane: true,
         );
       case 'about':
       default:
-        return const AboutScreen(isPane: true);
+        return AboutScreen(
+          key: const ValueKey('pane_about'),
+          systemService: widget.systemService,
+          syncService: widget.syncService,
+          isPane: true,
+        );
     }
   }
 }

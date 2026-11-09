@@ -6,18 +6,59 @@ import 'services/sync_service.dart';
 import 'services/system_service.dart';
 import 'services/appearance_preferences.dart';
 import 'screens/settings_screen.dart';
+import 'screens/installer_screen.dart';
 import 'widgets/mobile_landscape_layout.dart';
 import 'widgets/window_header_actions.dart';
 import 'widgets/window_resize_frame.dart';
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
-  runApp(EverDialerApp(prefs: prefs));
+  final isInstaller = args.contains('--installer') || args.contains('--setup');
+  if (isInstaller) {
+    runApp(EverDialerInstallerApp(prefs: prefs));
+  } else {
+    runApp(EverDialerApp(prefs: prefs));
+  }
 }
 
 // Default fallback accent color: KDE Gold/Amber system accent
 const _fallbackAccentColor = Color(0xFFFFDD31);
+
+/// A lightweight, buttery-smooth page transition builder for desktop environments.
+/// Eliminates full-window offscreen compositing jank caused by animating the underlying
+/// page's secondaryAnimation during route push and pop.
+class SmoothDesktopPageTransitionsBuilder extends PageTransitionsBuilder {
+  const SmoothDesktopPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final curvedAnimation = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+
+    return RepaintBoundary(
+      child: FadeTransition(
+        opacity: curvedAnimation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.0, 0.02),
+            end: Offset.zero,
+          ).animate(curvedAnimation),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
 
 class EverDialerApp extends StatefulWidget {
   final BluetoothService? bluetoothService;
@@ -249,9 +290,9 @@ class _EverDialerAppState extends State<EverDialerApp> {
                 ),
                 pageTransitionsTheme: const PageTransitionsTheme(
                   builders: {
-                    TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
-                    TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
-                    TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+                    TargetPlatform.linux: SmoothDesktopPageTransitionsBuilder(),
+                    TargetPlatform.windows: SmoothDesktopPageTransitionsBuilder(),
+                    TargetPlatform.android: SmoothDesktopPageTransitionsBuilder(),
                   },
                 ),
               ),
@@ -277,9 +318,9 @@ class _EverDialerAppState extends State<EverDialerApp> {
                 ),
                 pageTransitionsTheme: const PageTransitionsTheme(
                   builders: {
-                    TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
-                    TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
-                    TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+                    TargetPlatform.linux: SmoothDesktopPageTransitionsBuilder(),
+                    TargetPlatform.windows: SmoothDesktopPageTransitionsBuilder(),
+                    TargetPlatform.android: SmoothDesktopPageTransitionsBuilder(),
                   },
                 ),
               ),

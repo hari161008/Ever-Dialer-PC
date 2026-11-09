@@ -22,6 +22,8 @@ class SmoothContactAvatar extends StatelessWidget {
   static final Map<String, MemoryImage> _imageCache = {};
   static const int _maxCacheEntries = 500;
 
+  final VoidCallback? onPhotoNeeded;
+
   const SmoothContactAvatar({
     super.key,
     this.photoBase64,
@@ -33,6 +35,7 @@ class SmoothContactAvatar extends StatelessWidget {
     this.duration = const Duration(milliseconds: 400),
     this.curve = Curves.easeInOut,
     this.border,
+    this.onPhotoNeeded,
   });
 
   /// Look up or create a cached [MemoryImage] from base64 string.
@@ -67,31 +70,26 @@ class SmoothContactAvatar extends StatelessWidget {
     final fg = foregroundColor ?? colorScheme.onPrimaryContainer;
 
     final imageProvider = getImageProvider(photoBase64);
+    if (imageProvider == null && onPhotoNeeded != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        onPhotoNeeded!();
+      });
+    }
     final size = radius * 2;
 
-    Widget content;
     if (imageProvider != null) {
-      content = KeyedSubtree(
-        key: ValueKey<String>('img_${photoBase64.hashCode}'),
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: ClipOval(
-            child: Image(
-              image: imageProvider,
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
-              errorBuilder: (ctx, err, stack) => _buildFallback(context, size, bg, fg),
-            ),
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: bg,
+          border: border,
+          image: DecorationImage(
+            image: imageProvider,
+            fit: BoxFit.cover,
           ),
         ),
-      );
-    } else {
-      content = KeyedSubtree(
-        key: ValueKey<String>('fallback_${initials ?? fallbackChild?.key ?? 'empty'}'),
-        child: _buildFallback(context, size, bg, fg),
       );
     }
 
@@ -103,28 +101,7 @@ class SmoothContactAvatar extends StatelessWidget {
         color: bg,
         border: border,
       ),
-      clipBehavior: Clip.antiAlias,
-      child: AnimatedSwitcher(
-        duration: duration,
-        switchInCurve: curve,
-        switchOutCurve: curve,
-        layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
-          return Stack(
-            alignment: Alignment.center,
-            children: <Widget>[
-              ...previousChildren,
-              ?currentChild,
-            ],
-          );
-        },
-        transitionBuilder: (Widget child, Animation<double> animation) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
-        },
-        child: content,
-      ),
+      child: _buildFallback(context, size, bg, fg),
     );
   }
 

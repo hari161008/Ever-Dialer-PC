@@ -58,11 +58,22 @@ if [ -d "/opt/ever_dialer_pc" ] || [ -f "/usr/bin/ever_dialer_pc" ] || [ -f "/us
   fi
 fi
 
-echo "[3/6] Removing user desktop shortcuts, symlinks, and autostart entries..."
+echo "[3/6] Removing user desktop shortcuts, symlinks, setup wizard files, and autostart..."
+DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
+rm -f "$DESKTOP_DIR/Ever Dialer PC.desktop"
+rm -f "$DESKTOP_DIR/ever_dialer_pc.desktop"
+rm -f "$HOME/Desktop/Ever Dialer PC.desktop"
+rm -f "$HOME/Desktop/ever_dialer_pc.desktop"
+
 rm -f "$HOME/.local/share/applications/ever_dialer_pc.desktop"
 rm -f "$HOME/.local/share/applications/com.everdialer.ever_dialer_pc.desktop"
 rm -f "$HOME/.config/autostart/ever_dialer_pc.desktop"
+rm -f "$HOME/.local/bin/ever_dialer_pc"
 rm -f /tmp/everdialer_bt_sync.lock
+
+# Clean AppImage Setup Wizard user installation folder
+rm -rf "$HOME/.local/share/ever_dialer_pc"
+rm -rf "$HOME/.local/opt/ever_dialer_pc"
 
 # If system desktop entry still exists after package check, mask it so it never shows in app drawer
 if [ -f "/usr/share/applications/ever_dialer_pc.desktop" ] || [ -f "/usr/local/share/applications/ever_dialer_pc.desktop" ]; then
@@ -86,6 +97,7 @@ echo "[4/6] Updating desktop application database and icon caches across desktop
 update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null || true
 rm -f "$HOME/.local/share/icons/hicolor/"*/apps/ever_dialer_pc.png 2>/dev/null || true
+rm -f "$HOME/.local/share/pixmaps/ever_dialer_pc.png" 2>/dev/null || true
 gtk-update-icon-cache "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 
 echo "[5/6] Removing user application cache and preferences..."

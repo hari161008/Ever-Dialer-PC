@@ -654,7 +654,21 @@ static void my_application_activate(GApplication* application) {
   gtk_window_set_titlebar(window, empty_titlebar);
 
   // Seamless client-side app design: remove system title bar and borders
-  gtk_window_set_title(window, "Ever Dialer PC");
+  gboolean is_installer = FALSE;
+  if (self->dart_entrypoint_arguments != nullptr) {
+    for (char** arg = self->dart_entrypoint_arguments; *arg != nullptr; ++arg) {
+      if (g_strcmp0(*arg, "--installer") == 0 || g_strcmp0(*arg, "--setup") == 0) {
+        is_installer = TRUE;
+        break;
+      }
+    }
+  }
+
+  if (is_installer) {
+    gtk_window_set_title(window, "Ever Dialer PC Setup Wizard");
+  } else {
+    gtk_window_set_title(window, "Ever Dialer PC");
+  }
   gtk_window_set_decorated(window, FALSE);
 
   // Eliminate any default GTK window borders, outlines, or shadows
@@ -673,20 +687,37 @@ static void my_application_activate(GApplication* application) {
       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   g_object_unref(css_provider);
 
-  gtk_window_set_default_size(window, 580, 720);
+  if (is_installer) {
+    gtk_window_set_default_size(window, 560, 680);
+  } else {
+    gtk_window_set_default_size(window, 580, 720);
+  }
 
   // Set window icon from system theme or bundled asset fallback
   gtk_window_set_default_icon_name("ever_dialer_pc");
   gtk_window_set_icon_name(window, "ever_dialer_pc");
 
-  g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
-  if (exe_path != nullptr) {
-    g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
-    g_autofree gchar* icon_path = g_build_filename(
-        exe_dir, "data", "flutter_assets", "assets", "icons", "app_icon.png", nullptr);
-    if (g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
-      gtk_window_set_icon_from_file(window, icon_path, nullptr);
-      gtk_window_set_default_icon_from_file(icon_path, nullptr);
+  gboolean icon_loaded = FALSE;
+  const gchar* appdir_env = g_getenv("APPDIR");
+  if (appdir_env != nullptr) {
+    g_autofree gchar* appimage_icon = g_build_filename(appdir_env, "ever_dialer_pc.png", nullptr);
+    if (g_file_test(appimage_icon, G_FILE_TEST_EXISTS)) {
+      gtk_window_set_icon_from_file(window, appimage_icon, nullptr);
+      gtk_window_set_default_icon_from_file(appimage_icon, nullptr);
+      icon_loaded = TRUE;
+    }
+  }
+
+  if (!icon_loaded) {
+    g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
+    if (exe_path != nullptr) {
+      g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
+      g_autofree gchar* icon_path = g_build_filename(
+          exe_dir, "data", "flutter_assets", "assets", "icons", "app_icon.png", nullptr);
+      if (g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
+        gtk_window_set_icon_from_file(window, icon_path, nullptr);
+        gtk_window_set_default_icon_from_file(icon_path, nullptr);
+      }
     }
   }
 
@@ -724,7 +755,9 @@ static void my_application_activate(GApplication* application) {
   fl_method_channel_set_method_call_handler(
       system_channel, system_channel_method_call_cb, window, nullptr);
 
-  update_system_tray(window, TRUE);
+  if (!is_installer) {
+    update_system_tray(window, TRUE);
+  }
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -738,9 +771,14 @@ static gboolean my_application_local_command_line(GApplication* application,
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
   self->start_hidden = FALSE;
   gboolean is_debug_session = FALSE;
+  gboolean is_installer = FALSE;
 
   if (arguments != nullptr && *arguments != nullptr) {
     for (char** arg = *arguments + 1; *arg != nullptr; ++arg) {
+      if (g_strcmp0(*arg, "--installer") == 0 ||
+          g_strcmp0(*arg, "--setup") == 0) {
+        is_installer = TRUE;
+      }
       if (g_strcmp0(*arg, "--hidden") == 0 ||
           g_strcmp0(*arg, "--background") == 0 ||
           g_strcmp0(*arg, "--minimized") == 0) {
@@ -755,6 +793,26 @@ static gboolean my_application_local_command_line(GApplication* application,
     }
   }
 
+  if (is_installer) {
+    g_application_set_application_id(application, "com.everdialer.ever_dialer_pc.installer");
+    g_application_set_flags(application, G_APPLICATION_NON_UNIQUE);
+  }
+
+  // Check if launched from flutter run / IDE development session
+  gboolean is_dev_session = is_debug_session;
+  if (!is_dev_session) {
+    pid_t ppid = getppid();
+    g_autofree gchar* ppid_path = g_strdup_printf("/proc/%d/cmdline", (int)ppid);
+    gchar* ppid_cmd = nullptr;
+    gsize ppid_len = 0;
+    if (g_file_get_contents(ppid_path, &ppid_cmd, &ppid_len, nullptr)) {
+      if (ppid_cmd != nullptr && (strstr(ppid_cmd, "flutter") != nullptr || strstr(ppid_cmd, "dart") != nullptr)) {
+        is_dev_session = TRUE;
+      }
+      g_free(ppid_cmd);
+    }
+  }
+
   g_autoptr(GError) error = nullptr;
   if (!g_application_register(application, nullptr, &error)) {
     g_warning("Failed to register: %s", error->message);
@@ -763,8 +821,8 @@ static gboolean my_application_local_command_line(GApplication* application,
   }
 
   if (g_application_get_is_remote(application)) {
-    if (is_debug_session) {
-      // If launching from VS Code / debugger, terminate the old instance so the new debug session can take over
+    if (is_dev_session) {
+      // If launching from VS Code / flutter run, terminate the old instance so the new session takes over
       GDBusConnection* bus = g_application_get_dbus_connection(application);
       if (bus != nullptr) {
         g_autoptr(GVariant) reply = g_dbus_connection_call_sync(

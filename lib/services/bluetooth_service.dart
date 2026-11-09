@@ -38,6 +38,18 @@ class BluetoothDevice {
     required this.name,
     required this.connected,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BluetoothDevice &&
+          runtimeType == other.runtimeType &&
+          mac == other.mac &&
+          name == other.name &&
+          connected == other.connected;
+
+  @override
+  int get hashCode => mac.hashCode ^ name.hashCode ^ connected.hashCode;
 }
 
 class BluetoothState {
@@ -107,6 +119,41 @@ class BluetoothState {
           phoneAudioProfileActive ?? this.phoneAudioProfileActive,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is BluetoothState &&
+        other.powered == powered &&
+        other.discoverable == discoverable &&
+        other.pairable == pairable &&
+        other.alias == alias &&
+        other.connectedDevice == connectedDevice &&
+        other.speakerModeEnabled == speakerModeEnabled &&
+        other.speakerMuted == speakerMuted &&
+        other.speakerVolume == speakerVolume &&
+        other.statusMessage == statusMessage &&
+        other.activeSinkName == activeSinkName &&
+        other.activeSinkDescription == activeSinkDescription &&
+        other.phoneAudioProfileActive == phoneAudioProfileActive &&
+        listEquals(other.availableSinks, availableSinks);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        powered,
+        discoverable,
+        pairable,
+        alias,
+        connectedDevice,
+        speakerModeEnabled,
+        speakerMuted,
+        speakerVolume,
+        statusMessage,
+        activeSinkName,
+        activeSinkDescription,
+        phoneAudioProfileActive,
+      );
 }
 
 class BluetoothService extends ChangeNotifier {
@@ -115,6 +162,8 @@ class BluetoothService extends ChangeNotifier {
   BluetoothState _state = const BluetoothState();
   Timer? _pollTimer;
   SharedPreferences? _prefs;
+  bool _isRefreshing = false;
+  bool _autoStartTimer = true;
 
   bool? _originalPowered;
 
@@ -125,6 +174,7 @@ class BluetoothService extends ChangeNotifier {
     bool autoRefresh = true,
     SharedPreferences? prefs,
   }) {
+    _autoStartTimer = autoStartTimer;
     _prefs = prefs;
     // Check initial saved state synchronously if prefs already provided
     if (_prefs != null) {
@@ -132,6 +182,15 @@ class BluetoothService extends ChangeNotifier {
       _state = _state.copyWith(speakerModeEnabled: saved);
     }
     _init(autoStartTimer, autoRefresh);
+  }
+
+  void _resetPollTimer() {
+    if (!_autoStartTimer) return;
+    _pollTimer?.cancel();
+    final intervalMs = (_state.speakerModeEnabled || _state.connectedDevice != null) ? 4000 : 8000;
+    _pollTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
+      refresh();
+    });
   }
 
   Future<void> _init(bool autoStartTimer, bool autoRefresh) async {
@@ -144,20 +203,18 @@ class BluetoothService extends ChangeNotifier {
     }
 
     // Query current audio state immediately so we know the system volume and mute state
-    await _queryAudioState();
+    await _queryAudioState(querySinks: true);
 
     if (autoRefresh) {
       if (savedEnabled) {
         // If persisted as ON, ensure hardware is active
         await _applySpeakerHardware(true);
       }
-      await refresh();
+      await refresh(querySinks: true);
     }
 
     if (autoStartTimer) {
-      _pollTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
-        refresh();
-      });
+      _resetPollTimer();
     }
   }
 
@@ -376,10 +433,24 @@ class BluetoothService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> refresh() async {
-    await _queryBluetoothState();
-    await _queryAudioState();
-    notifyListeners();
+  Future<void> queryDetailedAudioSinks() async {
+    await refresh(querySinks: true);
+  }
+
+  Future<void> refresh({bool querySinks = false}) async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
+    try {
+      final oldState = _state;
+      await _queryBluetoothState();
+      await _queryAudioState(querySinks: querySinks);
+      if (_state != oldState) {
+        notifyListeners();
+        _resetPollTimer();
+      }
+    } finally {
+      _isRefreshing = false;
+    }
   }
 
   Future<void> _queryBluetoothState() async {
@@ -453,7 +524,7 @@ class BluetoothService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> _queryAudioState() async {
+  Future<void> _queryAudioState({bool querySinks = false}) async {
     try {
       // 1. Query volume and mute state
       final volResult = await Process.run(
@@ -476,71 +547,77 @@ class BluetoothService extends ChangeNotifier {
         }
       }
 
-      // 2. Query available sinks
-      String? defaultSinkName;
-      try {
-        final defRes = await Process.run('pactl', ['get-default-sink']);
-        if (defRes.exitCode == 0) {
-          defaultSinkName = (defRes.stdout as String).trim();
-        }
-      } catch (_) {}
+      // 2. Query available sinks only when requested (e.g. settings screen or initial load)
+      String? defaultSinkName = _state.activeSinkName;
+      String? activeSinkDescription = _state.activeSinkDescription;
+      List<AudioSinkDevice> sinks = _state.availableSinks;
 
-      final List<AudioSinkDevice> sinks = [];
-      String? activeSinkDescription;
-
-      try {
-        final sinksRes = await Process.run('pactl', ['-f', 'json', 'list', 'sinks']);
-        if (sinksRes.exitCode == 0) {
-          final sinksList = jsonDecode(sinksRes.stdout as String) as List<dynamic>;
-          for (final s in sinksList) {
-            final sMap = s as Map<String, dynamic>;
-            final name = sMap['name'] as String? ?? '';
-            final desc = sMap['description'] as String? ?? name;
-            final isDef = name == defaultSinkName;
-            if (isDef) {
-              activeSinkDescription = desc;
-            }
-            sinks.add(AudioSinkDevice(
-              name: name,
-              description: desc,
-              isDefault: isDef,
-            ));
+      if (querySinks || sinks.isEmpty) {
+        try {
+          final defRes = await Process.run('pactl', ['get-default-sink']);
+          if (defRes.exitCode == 0) {
+            defaultSinkName = (defRes.stdout as String).trim();
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
 
-      // 3. Check if phone's bluez card profile is active (not 'off')
-      bool phoneProfileActive = true;
-      try {
-        final cardsRes = await Process.run('pactl', ['-f', 'json', 'list', 'cards']);
-        if (cardsRes.exitCode == 0) {
-          final cardsList = jsonDecode(cardsRes.stdout as String) as List<dynamic>;
-          for (final c in cardsList) {
-            final cMap = c as Map<String, dynamic>;
-            final name = cMap['name'] as String? ?? '';
-            if (name.startsWith('bluez_card.')) {
-              final activeProfile = cMap['active_profile'] as String? ?? '';
-              if (activeProfile == 'off') {
-                phoneProfileActive = false;
-                // Auto-restore audio-gateway profile if speaker mode is enabled
-                if (_state.speakerModeEnabled && _state.connectedDevice != null) {
-                  final profiles = cMap['profiles'] as Map<String, dynamic>? ?? {};
-                  String? targetProfile;
-                  if (profiles.containsKey('audio-gateway')) {
-                    targetProfile = 'audio-gateway';
-                  } else if (profiles.containsKey('a2dp-source')) {
-                    targetProfile = 'a2dp-source';
-                  }
-                  if (targetProfile != null) {
-                    await Process.run('pactl', ['set-card-profile', name, targetProfile]);
-                    phoneProfileActive = true;
+        try {
+          final sinksRes = await Process.run('pactl', ['-f', 'json', 'list', 'sinks']);
+          if (sinksRes.exitCode == 0) {
+            final sinksList = jsonDecode(sinksRes.stdout as String) as List<dynamic>;
+            final List<AudioSinkDevice> queriedSinks = [];
+            for (final s in sinksList) {
+              final sMap = s as Map<String, dynamic>;
+              final name = sMap['name'] as String? ?? '';
+              final desc = sMap['description'] as String? ?? name;
+              final isDef = name == defaultSinkName;
+              if (isDef) {
+                activeSinkDescription = desc;
+              }
+              queriedSinks.add(AudioSinkDevice(
+                name: name,
+                description: desc,
+                isDefault: isDef,
+              ));
+            }
+            sinks = queriedSinks;
+          }
+        } catch (_) {}
+      }
+
+      // 3. Check if phone's bluez card profile is active only when connected
+      bool phoneProfileActive = _state.phoneAudioProfileActive;
+      if (querySinks || (_state.speakerModeEnabled && _state.connectedDevice != null)) {
+        try {
+          final cardsRes = await Process.run('pactl', ['-f', 'json', 'list', 'cards']);
+          if (cardsRes.exitCode == 0) {
+            final cardsList = jsonDecode(cardsRes.stdout as String) as List<dynamic>;
+            for (final c in cardsList) {
+              final cMap = c as Map<String, dynamic>;
+              final name = cMap['name'] as String? ?? '';
+              if (name.startsWith('bluez_card.')) {
+                final activeProfile = cMap['active_profile'] as String? ?? '';
+                if (activeProfile == 'off') {
+                  phoneProfileActive = false;
+                  // Auto-restore audio-gateway profile if speaker mode is enabled
+                  if (_state.speakerModeEnabled && _state.connectedDevice != null) {
+                    final profiles = cMap['profiles'] as Map<String, dynamic>? ?? {};
+                    String? targetProfile;
+                    if (profiles.containsKey('audio-gateway')) {
+                      targetProfile = 'audio-gateway';
+                    } else if (profiles.containsKey('a2dp-source')) {
+                      targetProfile = 'a2dp-source';
+                    }
+                    if (targetProfile != null) {
+                      await Process.run('pactl', ['set-card-profile', name, targetProfile]);
+                      phoneProfileActive = true;
+                    }
                   }
                 }
               }
             }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
       _state = _state.copyWith(
         speakerMuted: isMuted,

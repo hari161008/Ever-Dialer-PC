@@ -1904,6 +1904,107 @@ void main() {
     mockService.dispose();
     mockSyncService.dispose();
   });
+
+  testWidgets('SMS highlighted thread container and message bubbles have rounded corners without sharp edges', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    mockSyncService.updateFromPayload({
+      'smsThreads': [
+        {
+          'id': 'thread_test_1',
+          'contactName': 'Charlie Test',
+          'phone': '+1999888777',
+          'snippet': 'Hello world test message',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'unreadCount': 0,
+          'messages': [
+            {
+              'id': 'msg_t1',
+              'body': 'Hello world test message',
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+              'isOutgoing': false,
+            },
+            {
+              'id': 'msg_t2',
+              'body': 'Outgoing response message',
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+              'isOutgoing': true,
+            },
+          ],
+        }
+      ]
+    });
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    // Switch to SMS tab
+    await tester.tap(find.text('SMS'));
+    await tester.pumpAndSettle();
+
+    // Verify the highlighted thread container uses rounded Material (BorderRadius.circular(16))
+    final highlightedMaterial = tester.widgetList<Material>(find.byType(Material)).where((m) {
+      return m.borderRadius == BorderRadius.circular(16) && m.color != Colors.transparent;
+    });
+    expect(highlightedMaterial.isNotEmpty, isTrue);
+
+    // Verify chat message bubbles have rounded borders (BorderRadius.circular(18)) without sharp corners
+    final bubbleContainers = tester.widgetList<Container>(find.byType(Container)).where((c) {
+      if (c.decoration is BoxDecoration) {
+        final box = c.decoration as BoxDecoration;
+        return box.borderRadius == BorderRadius.circular(18);
+      }
+      return false;
+    });
+    expect(bubbleContainers.isNotEmpty, isTrue);
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
+
+  testWidgets('SmoothDesktopPageTransitionsBuilder is configured on app themes', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'pc_sync_enabled': true,
+      'speaker_mode_enabled': true,
+    });
+    final prefs = await SharedPreferences.getInstance();
+
+    final mockService = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+    final mockSyncService = PcSyncService(prefs: prefs);
+
+    await tester.pumpWidget(EverDialerApp(
+      bluetoothService: mockService,
+      syncService: mockSyncService,
+      prefs: prefs,
+    ));
+    await tester.pumpAndSettle();
+
+    final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    final linuxBuilder = materialApp.theme?.pageTransitionsTheme.builders[TargetPlatform.linux];
+    expect(linuxBuilder, isA<SmoothDesktopPageTransitionsBuilder>());
+
+    mockService.dispose();
+    mockSyncService.dispose();
+  });
 }
 
 

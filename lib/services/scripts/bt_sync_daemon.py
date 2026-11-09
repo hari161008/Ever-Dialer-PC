@@ -84,12 +84,12 @@ def handle_socket_connection(client_sock, client_addr, mac_addr=""):
     log(f"Bluetooth connection established with {dev_name} (MAC: {mac_addr}) [conn #{my_conn_id}]")
     emit_event("status", connected=True, device=dev_name, mac=mac_addr)
 
-    # Immediately request fresh sync and telemetry data from the newly connected phone!
+    # Immediately request telemetry data from the newly connected phone; sync is triggered by Flutter with timestamp
     try:
-        client_sock.sendall(b'{"cmd": "request_sync"}\n{"cmd": "request_telemetry"}\n')
-        log(f"Sent immediate request_sync and request_telemetry to {dev_name}")
+        client_sock.sendall(b'{"cmd": "request_telemetry"}\n')
+        log(f"Sent immediate request_telemetry to {dev_name}")
     except Exception as e:
-        log(f"Error sending initial request_sync: {e}")
+        log(f"Error sending initial request_telemetry: {e}")
 
     buffer = ""
     try:

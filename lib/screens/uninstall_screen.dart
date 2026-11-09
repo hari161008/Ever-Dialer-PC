@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/system_service.dart';
 import '../services/sync_service.dart';
@@ -22,8 +21,6 @@ class UninstallScreen extends StatefulWidget {
 }
 
 class _UninstallScreenState extends State<UninstallScreen> {
-  bool _deleteSourceFolder = false;
-  bool _removeSysPackage = true;
   String? _detectedPackageType;
   bool _isUninstalling = false;
 
@@ -64,33 +61,7 @@ class _UninstallScreenState extends State<UninstallScreen> {
                 'Are you sure you want to uninstall Ever Dialer PC? This action cannot be undone.',
                 style: TextStyle(fontSize: 14),
               ),
-              if (_deleteSourceFolder) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: colorScheme.errorContainer.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_forever, size: 20, color: colorScheme.error),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'The project source directory will also be permanently deleted.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.onErrorContainer,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              if (_detectedPackageType != null && _removeSysPackage) ...[
+              if (_detectedPackageType != null) ...[
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(10),
@@ -100,11 +71,19 @@ class _UninstallScreenState extends State<UninstallScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.admin_panel_settings_outlined, size: 20, color: colorScheme.primary),
+                      Icon(
+                        _detectedPackageType!.contains('~/.local')
+                            ? Icons.install_desktop_outlined
+                            : Icons.admin_panel_settings_outlined,
+                        size: 20,
+                        color: colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'You will be prompted for your password to remove $_detectedPackageType.',
+                          _detectedPackageType!.contains('~/.local')
+                              ? 'Will remove $_detectedPackageType and associated desktop shortcuts.'
+                              : 'You will be prompted for your password to remove $_detectedPackageType.',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -144,8 +123,7 @@ class _UninstallScreenState extends State<UninstallScreen> {
     try {
       final service = widget.systemService ?? SystemService();
       await service.performUninstall(
-        deleteSource: _deleteSourceFolder,
-        removeSysPackage: _removeSysPackage,
+        removeSysPackage: true,
       );
     } catch (e) {
       if (!mounted) return;
@@ -163,7 +141,6 @@ class _UninstallScreenState extends State<UninstallScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final projectDir = Directory.current.path;
 
     final content = SingleChildScrollView(
       padding: EdgeInsets.symmetric(
@@ -267,46 +244,17 @@ class _UninstallScreenState extends State<UninstallScreen> {
                   subtitle: 'Removes local cache, paired sync data & preferences',
                   colorScheme: colorScheme,
                 ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // ── Options ───────────────────────────────────
-          const RivoSectionHeader(title: 'Advanced Options'),
-          RivoExpressiveCard(
-            child: Column(
-              children: [
                 if (_detectedPackageType != null) ...[
-                  RivoSwitchListItem(
-                    headline: 'Uninstall System Package',
-                    supporting: 'Remove $_detectedPackageType via system package manager (requests root password)',
-                    leadingIcon: Icons.system_update_alt_outlined,
-                    iconColor: colorScheme.primary,
-                    value: _removeSysPackage,
-                    onChanged: (val) {
-                      if (!_isUninstalling) {
-                        setState(() => _removeSysPackage = val);
-                      }
-                    },
-                  ),
                   const RivoDivider(),
+                  _buildRemovalItem(
+                    icon: _detectedPackageType!.contains('~/.local')
+                        ? Icons.install_desktop_outlined
+                        : Icons.admin_panel_settings_outlined,
+                    title: 'Installed Application Files',
+                    subtitle: _detectedPackageType!,
+                    colorScheme: colorScheme,
+                  ),
                 ],
-                RivoSwitchListItem(
-                  headline: 'Delete Project Source Folder',
-                  supporting: projectDir.isNotEmpty
-                      ? 'Permanently delete $projectDir'
-                      : 'Permanently remove project files',
-                  leadingIcon: Icons.folder_special_outlined,
-                  iconColor: colorScheme.error,
-                  value: _deleteSourceFolder,
-                  onChanged: (val) {
-                    if (!_isUninstalling) {
-                      setState(() => _deleteSourceFolder = val);
-                    }
-                  },
-                ),
               ],
             ),
           ),

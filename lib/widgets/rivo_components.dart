@@ -9,6 +9,8 @@ class RivoExpressiveCard extends StatelessWidget {
   final double borderRadius;
   final VoidCallback? onClick;
 
+  final Clip clipBehavior;
+
   const RivoExpressiveCard({
     super.key,
     required this.child,
@@ -16,6 +18,7 @@ class RivoExpressiveCard extends StatelessWidget {
     this.margin,
     this.color,
     this.borderRadius = 22.0,
+    this.clipBehavior = Clip.none,
     this.onClick,
   });
 
@@ -24,17 +27,24 @@ class RivoExpressiveCard extends StatelessWidget {
     final theme = Theme.of(context);
     final cardColor = color ?? theme.colorScheme.surfaceContainer;
 
+    Widget inner = Padding(
+      padding: padding,
+      child: child,
+    );
+
+    if (onClick != null) {
+      inner = InkWell(
+        onTap: onClick,
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: inner,
+      );
+    }
+
     Widget content = Material(
       color: cardColor,
       borderRadius: BorderRadius.circular(borderRadius),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onClick,
-        child: Padding(
-          padding: padding,
-          child: child,
-        ),
-      ),
+      clipBehavior: clipBehavior,
+      child: inner,
     );
 
     if (margin != null) {

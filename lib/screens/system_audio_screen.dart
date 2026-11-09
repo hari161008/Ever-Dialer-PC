@@ -6,7 +6,7 @@ import '../widgets/rivo_components.dart';
 import '../widgets/audio_status_card.dart';
 import '../widgets/window_header_actions.dart';
 
-class SystemAudioScreen extends StatelessWidget {
+class SystemAudioScreen extends StatefulWidget {
   final SystemService? systemService;
   final BluetoothService bluetoothService;
   final PcSyncService? syncService;
@@ -21,7 +21,23 @@ class SystemAudioScreen extends StatelessWidget {
   });
 
   @override
+  State<SystemAudioScreen> createState() => _SystemAudioScreenState();
+}
+
+class _SystemAudioScreenState extends State<SystemAudioScreen> {
+  @override
+  void initState() {
+    super.initState();
+    widget.bluetoothService.queryDetailedAudioSinks();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final bluetoothService = widget.bluetoothService;
+    final systemService = widget.systemService;
+    final syncService = widget.syncService;
+    final isPane = widget.isPane;
+
     final listenables = <Listenable>[
       bluetoothService,
       ?systemService,
@@ -51,8 +67,8 @@ class SystemAudioScreen extends StatelessWidget {
                         supporting: 'Launch Ever Dialer automatically on login',
                         leadingIcon: Icons.power_settings_new,
                         iconColor: const Color(0xFFFF9800),
-                        value: systemService!.autostartEnabled,
-                        onChanged: (val) => systemService!.setAutostartEnabled(val),
+                        value: systemService.autostartEnabled,
+                        onChanged: (val) => systemService.setAutostartEnabled(val),
                       ),
                       const RivoDivider(),
                       RivoSwitchListItem(
@@ -60,8 +76,8 @@ class SystemAudioScreen extends StatelessWidget {
                         supporting: 'Exit the app completely when closed instead of running in the background',
                         leadingIcon: Icons.exit_to_app_rounded,
                         iconColor: const Color(0xFFE53935),
-                        value: systemService!.exitOnClose,
-                        onChanged: (val) => systemService!.setExitOnClose(val),
+                        value: systemService.exitOnClose,
+                        onChanged: (val) => systemService.setExitOnClose(val),
                       ),
                       const RivoDivider(),
                       RivoSwitchListItem(
@@ -69,8 +85,8 @@ class SystemAudioScreen extends StatelessWidget {
                         supporting: 'Keep running in background when closed',
                         leadingIcon: Icons.call_to_action_outlined,
                         iconColor: const Color(0xFF2196F3),
-                        value: systemService!.systemTrayEnabled,
-                        onChanged: (val) => systemService!.setSystemTrayEnabled(val),
+                        value: systemService.systemTrayEnabled,
+                        onChanged: (val) => systemService.setSystemTrayEnabled(val),
                       ),
                     ],
                   ),

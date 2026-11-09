@@ -37,6 +37,8 @@ class SyncedContact {
   final String name;
   final String phone;
   final bool isFavorite;
+  final bool hasPhoto;
+  final String simChoice;
   final String? account;
   final String? photoBase64;
   final List<SyncedContactPhone> phones;
@@ -50,6 +52,8 @@ class SyncedContact {
     required this.name,
     required this.phone,
     this.isFavorite = false,
+    this.hasPhoto = false,
+    this.simChoice = 'settings',
     this.account,
     this.photoBase64,
     this.phones = const [],
@@ -58,6 +62,38 @@ class SyncedContact {
     this.sourceAccounts = const [],
     this.note,
   });
+
+  SyncedContact copyWith({
+    String? id,
+    String? name,
+    String? phone,
+    bool? isFavorite,
+    bool? hasPhoto,
+    String? simChoice,
+    String? account,
+    String? photoBase64,
+    List<SyncedContactPhone>? phones,
+    List<String>? emails,
+    List<String>? addresses,
+    List<String>? sourceAccounts,
+    String? note,
+  }) {
+    return SyncedContact(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      isFavorite: isFavorite ?? this.isFavorite,
+      hasPhoto: hasPhoto ?? this.hasPhoto,
+      simChoice: simChoice ?? this.simChoice,
+      account: account ?? this.account,
+      photoBase64: photoBase64 ?? this.photoBase64,
+      phones: phones ?? this.phones,
+      emails: emails ?? this.emails,
+      addresses: addresses ?? this.addresses,
+      sourceAccounts: sourceAccounts ?? this.sourceAccounts,
+      note: note ?? this.note,
+    );
+  }
 
   String get initials {
     final parts = name.trim().split(' ');
@@ -96,13 +132,19 @@ class SyncedContact {
       parsedAccounts = [json['account'].toString()];
     }
 
+    final pfp = json['photoBase64']?.toString();
+    final hasPhotoVal = json['hasPhoto'] == true || (pfp != null && pfp.isNotEmpty);
+    final simChoice = json['simChoice']?.toString() ?? 'settings';
+
     return SyncedContact(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Unknown',
       phone: rawPhone,
       isFavorite: json['isFavorite'] == true,
+      hasPhoto: hasPhotoVal,
+      simChoice: simChoice,
       account: json['account']?.toString(),
-      photoBase64: json['photoBase64']?.toString(),
+      photoBase64: pfp,
       phones: parsedPhones,
       emails: parsedEmails,
       addresses: parsedAddresses,
@@ -116,6 +158,8 @@ class SyncedContact {
     'name': name,
     'phone': phone,
     'isFavorite': isFavorite,
+    'hasPhoto': hasPhoto,
+    'simChoice': simChoice,
     'account': account,
     'photoBase64': photoBase64,
     'phones': phones.map((p) => p.toJson()).toList(),
@@ -677,6 +721,10 @@ class PcSyncService extends ChangeNotifier {
 
   // Real phone data (NO fake/unsaved contacts)
   List<SyncedContact> _contacts = [];
+  final Map<String, SyncedContact> _contactsMap = {};
+  int? _lastContactsSyncTimestamp;
+  int? get lastContactsSyncTimestamp => _lastContactsSyncTimestamp;
+  final Set<String> _pendingPhotoRequests = {};
   final Map<String, String?> _phonePhotoCache = {};
   List<SyncedCallLog> _callLogs = [];
   List<SyncedSmsThread> _smsThreads = [];
@@ -701,14 +749,26 @@ class PcSyncService extends ChangeNotifier {
 
   Color? _phoneThemeColor;
   Color? get phoneThemeColor => _phoneThemeColor;
-  int _defaultSim = 1;
+  int _defaultSim = 0;
   int get defaultSim => _defaultSim;
+  bool _useSimFromCallLog = false;
+  bool get useSimFromCallLog => _useSimFromCallLog;
+  int _lastUsedSimGlobal = 0;
+  int get lastUsedSimGlobal => _lastUsedSimGlobal;
   int _simCount = 1;
   int get simCount => _simCount;
   Color _sim1Color = const Color(0xFF2E7D32);
   Color get sim1Color => _sim1Color;
   Color _sim2Color = const Color(0xFFC62828);
   Color get sim2Color => _sim2Color;
+  String _sim1Label = 'SIM 1';
+  String get sim1Label => _sim1Label;
+  String _sim2Label = 'SIM 2';
+  String get sim2Label => _sim2Label;
+  String? _sim1Number;
+  String? get sim1Number => _sim1Number;
+  String? _sim2Number;
+  String? get sim2Number => _sim2Number;
 
   bool _favoritesInList = false;
   bool get favoritesInList => _favoritesInList;
@@ -933,8 +993,68 @@ class PcSyncService extends ChangeNotifier {
     requestTelemetryNow();
   }
 
+  static Directory? _avatarDir;
+  static Directory get _avatarDirectory {
+    if (_avatarDir != null) return _avatarDir!;
+    final home = Platform.environment['HOME'] ?? '.';
+    final dir = Directory('$home/.cache/everdialer/avatars');
+    if (!dir.existsSync()) {
+      dir.createSync(recursive: true);
+    }
+    _avatarDir = dir;
+    return dir;
+  }
+
+  void _saveAvatarToDisk(String contactId, String? b64) {
+    if (b64 == null || b64.isEmpty) return;
+    try {
+      final file = File('${_avatarDirectory.path}/$contactId.b64');
+      file.writeAsStringSync(b64);
+    } catch (_) {}
+  }
+
+  String? _loadAvatarFromDisk(String contactId) {
+    try {
+      final file = File('${_avatarDirectory.path}/$contactId.b64');
+      if (file.existsSync()) {
+        return file.readAsStringSync();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  void requestContactPhoto(String contactId) {
+    if (contactId.isEmpty || !_isConnected) return;
+    if (_pendingPhotoRequests.contains(contactId)) return;
+    final cached = _loadAvatarFromDisk(contactId);
+    if (cached != null) {
+      if (_contactsMap.containsKey(contactId)) {
+        final old = _contactsMap[contactId]!;
+        _contactsMap[contactId] = old.copyWith(
+          photoBase64: cached,
+          hasPhoto: true,
+        );
+        _contacts = _contactsMap.values.toList();
+        if (old.phone.isNotEmpty) {
+          final clean = old.phone.replaceAll(RegExp(r'[^\d+]'), '');
+          _phonePhotoCache[clean] = cached;
+        }
+        notifyListeners();
+      }
+      return;
+    }
+    _pendingPhotoRequests.add(contactId);
+    _sendCommand({
+      'cmd': 'get_contact_photo',
+      'contactId': contactId,
+    });
+  }
+
   void _clearPhoneData() {
     _contacts = [];
+    _contactsMap.clear();
+    _lastContactsSyncTimestamp = null;
+    _pendingPhotoRequests.clear();
     _contactGroups = [];
     _callLogs = [];
     _smsThreads = [];
@@ -955,6 +1075,7 @@ class PcSyncService extends ChangeNotifier {
     try {
       final payload = {
         'contacts': _contacts.map((c) => c.toJson()).toList(),
+        'lastContactsSyncTimestamp': _lastContactsSyncTimestamp,
         'contactGroups': _contactGroups.map((g) => g.toJson()).toList(),
         'callLogs': _callLogs.take(50).map((c) => c.toJson()).toList(),
         'callCategories': _callCategories.map((c) => c.toJson()).toList(),
@@ -1095,6 +1216,49 @@ class PcSyncService extends ChangeNotifier {
         if (payload is Map<String, dynamic>) {
           updateFromPayload(payload);
         }
+      } else if (event == 'sync_settings') {
+        final payload = data['payload'];
+        if (payload is Map<String, dynamic>) {
+          _isConnected = true;
+          _applySettingsPayload(payload);
+        }
+      } else if (event == 'sync_calls') {
+        final payload = data['payload'];
+        if (payload is List) {
+          _isConnected = true;
+          _applyCallsPayload(payload);
+        }
+      } else if (event == 'sync_sms') {
+        final payload = data['payload'];
+        if (payload is Map<String, dynamic>) {
+          _isConnected = true;
+          _applySmsPayload(payload);
+        }
+      } else if (event == 'sync_notes') {
+        final payload = data['payload'];
+        _isConnected = true;
+        if (payload is List) {
+          _applyNotesPayload(payload);
+        } else if (payload is Map<String, dynamic> && payload['notes'] is List) {
+          _applyNotesPayload(payload['notes'] as List);
+        }
+      } else if (event == 'sync_contacts_chunk') {
+        final payload = data['payload'];
+        if (payload is Map<String, dynamic>) {
+          _isConnected = true;
+          _applyContactsChunk(payload);
+        }
+      } else if (event == 'sync_contacts_delta') {
+        final payload = data['payload'];
+        if (payload is Map<String, dynamic>) {
+          _isConnected = true;
+          _applyContactsDelta(payload);
+        }
+      } else if (event == 'contact_photo') {
+        final payload = data['payload'];
+        if (payload is Map<String, dynamic>) {
+          _applyContactPhoto(payload);
+        }
       } else if (event == 'telemetry') {
         final payload = data['payload'];
         if (payload is Map<String, dynamic>) {
@@ -1138,9 +1302,17 @@ class PcSyncService extends ChangeNotifier {
             .whereType<Map<String, dynamic>>()
             .map((item) => SyncedContact.fromJson(item))
             .toList();
+        _contactsMap.clear();
+        for (final c in _contacts) {
+          _contactsMap[c.id] = c;
+        }
       } else {
         _contacts = [];
+        _contactsMap.clear();
       }
+    }
+    if (payload.containsKey('lastContactsSyncTimestamp') && payload['lastContactsSyncTimestamp'] is int) {
+      _lastContactsSyncTimestamp = payload['lastContactsSyncTimestamp'] as int;
     }
 
     // 1b. Contact Groups
@@ -1294,6 +1466,12 @@ class PcSyncService extends ChangeNotifier {
     if (payload.containsKey('defaultSim') && payload['defaultSim'] is int) {
       _defaultSim = payload['defaultSim'] as int;
     }
+    if (payload.containsKey('useSimFromCallLog')) {
+      _useSimFromCallLog = payload['useSimFromCallLog'] == true;
+    }
+    if (payload.containsKey('lastUsedSimGlobal') && payload['lastUsedSimGlobal'] is int) {
+      _lastUsedSimGlobal = payload['lastUsedSimGlobal'] as int;
+    }
     if (payload.containsKey('simCount') && payload['simCount'] is int) {
       _simCount = payload['simCount'] as int;
     }
@@ -1306,6 +1484,18 @@ class PcSyncService extends ChangeNotifier {
       try {
         _sim2Color = Color(int.parse((payload['sim2Color'] as String).replaceFirst('#', '0xFF')));
       } catch (_) {}
+    }
+    if (payload.containsKey('sim1Label') && payload['sim1Label'] != null) {
+      _sim1Label = payload['sim1Label'].toString();
+    }
+    if (payload.containsKey('sim2Label') && payload['sim2Label'] != null) {
+      _sim2Label = payload['sim2Label'].toString();
+    }
+    if (payload.containsKey('sim1Number')) {
+      _sim1Number = payload['sim1Number']?.toString();
+    }
+    if (payload.containsKey('sim2Number')) {
+      _sim2Number = payload['sim2Number']?.toString();
     }
 
     if (payload.containsKey('deviceName')) {
@@ -1329,6 +1519,262 @@ class PcSyncService extends ChangeNotifier {
 
     if (saveCache) {
       _saveCachedData();
+    }
+  }
+
+  void _applySettingsPayload(Map<String, dynamic> payload) {
+    if (payload.containsKey('themeColor')) {
+      final colorStr = payload['themeColor'] as String?;
+      if (colorStr != null && colorStr.isNotEmpty) {
+        try {
+          _phoneThemeColor = Color(int.parse(colorStr.replaceFirst('#', '0xFF')));
+          _prefs?.setInt('last_synced_theme_color', _phoneThemeColor!.toARGB32());
+        } catch (_) {
+          _phoneThemeColor = null;
+          _prefs?.remove('last_synced_theme_color');
+        }
+      } else {
+        _phoneThemeColor = null;
+        _prefs?.remove('last_synced_theme_color');
+      }
+    }
+    if (payload.containsKey('defaultSim') && payload['defaultSim'] is int) {
+      _defaultSim = payload['defaultSim'] as int;
+    }
+    if (payload.containsKey('useSimFromCallLog')) {
+      _useSimFromCallLog = payload['useSimFromCallLog'] == true;
+    }
+    if (payload.containsKey('lastUsedSimGlobal') && payload['lastUsedSimGlobal'] is int) {
+      _lastUsedSimGlobal = payload['lastUsedSimGlobal'] as int;
+    }
+    if (payload.containsKey('simCount') && payload['simCount'] is int) {
+      _simCount = payload['simCount'] as int;
+    }
+    if (payload.containsKey('sim1Color') && payload['sim1Color'] is String) {
+      try {
+        _sim1Color = Color(int.parse((payload['sim1Color'] as String).replaceFirst('#', '0xFF')));
+      } catch (_) {}
+    }
+    if (payload.containsKey('sim2Color') && payload['sim2Color'] is String) {
+      try {
+        _sim2Color = Color(int.parse((payload['sim2Color'] as String).replaceFirst('#', '0xFF')));
+      } catch (_) {}
+    }
+    if (payload.containsKey('sim1Label') && payload['sim1Label'] != null) {
+      _sim1Label = payload['sim1Label'].toString();
+    }
+    if (payload.containsKey('sim2Label') && payload['sim2Label'] != null) {
+      _sim2Label = payload['sim2Label'].toString();
+    }
+    if (payload.containsKey('sim1Number')) {
+      _sim1Number = payload['sim1Number']?.toString();
+    }
+    if (payload.containsKey('sim2Number')) {
+      _sim2Number = payload['sim2Number']?.toString();
+    }
+    if (payload.containsKey('confirmPlacingCall')) {
+      _confirmPlacingCall = payload['confirmPlacingCall'] == true;
+    }
+    if (payload.containsKey('favoritesInList')) {
+      _favoritesInList = payload['favoritesInList'] == true;
+      _prefs?.setBool('favorites_in_list', _favoritesInList);
+    }
+    if (payload.containsKey('callCategories')) {
+      final list = payload['callCategories'];
+      if (list is List) {
+        _callCategories = list
+            .whereType<Map<String, dynamic>>()
+            .map((item) => SyncedCallCategory.fromJson(item))
+            .toList();
+      }
+    }
+    if (payload.containsKey('enabledFeatures')) {
+      final features = payload['enabledFeatures'];
+      if (features is Map<String, dynamic>) {
+        _syncFavouritesEnabled = features['favourites'] != false;
+        _syncCallLogsEnabled = features['callLogs'] != false;
+        _syncContactsEnabled = features['contacts'] != false;
+        _syncSmsEnabled = features['sms'] != false;
+        _syncNotesEnabled = features['notes'] != false;
+        _syncContactPfpEnabled = features['contactPfp'] != false;
+      }
+    }
+    if (payload.containsKey('telemetry') && payload['telemetry'] is Map<String, dynamic>) {
+      _telemetry = SyncedTelemetry.fromJson(payload['telemetry'] as Map<String, dynamic>);
+    }
+    _lastSyncTime = DateTime.now();
+    notifyListeners();
+  }
+
+  void _applyCallsPayload(List list) {
+    _callLogs = list
+        .whereType<Map<String, dynamic>>()
+        .map((item) => SyncedCallLog.fromJson(item))
+        .take(50)
+        .toList();
+    _lastSyncTime = DateTime.now();
+    _saveCachedData();
+    notifyListeners();
+  }
+
+  void _applySmsPayload(Map<String, dynamic> payload) {
+    if (payload.containsKey('smsThreads')) {
+      final list = payload['smsThreads'];
+      if (list is List) {
+        _smsThreads = list
+            .whereType<Map<String, dynamic>>()
+            .map((item) => SyncedSmsThread.fromJson(item))
+            .toList();
+      }
+    }
+    if (payload.containsKey('starredSmsMessageIds')) {
+      _starredSmsMessageIds.clear();
+      final list = payload['starredSmsMessageIds'];
+      if (list is List) {
+        for (var id in list) {
+          _starredSmsMessageIds.add(id.toString());
+        }
+      }
+    }
+    if (payload.containsKey('pinnedSmsMessageIds')) {
+      _pinnedSmsMessageIds.clear();
+      final list = payload['pinnedSmsMessageIds'];
+      if (list is List) {
+        for (var id in list) {
+          _pinnedSmsMessageIds.add(id.toString());
+        }
+      }
+    }
+    if (payload.containsKey('pinnedSmsThreadIds')) {
+      _pinnedSmsThreadIds.clear();
+      final list = payload['pinnedSmsThreadIds'];
+      if (list is List) {
+        for (var id in list) {
+          _pinnedSmsThreadIds.add(id.toString());
+        }
+      }
+    }
+    if (payload.containsKey('smsCategories')) {
+      final list = payload['smsCategories'];
+      if (list is List) {
+        _smsCategories = list
+            .whereType<Map<String, dynamic>>()
+            .map((item) => SyncedSmsCategory.fromJson(item))
+            .toList();
+      }
+    }
+    _lastSyncTime = DateTime.now();
+    _saveCachedData();
+    notifyListeners();
+  }
+
+  void _applyNotesPayload(List list) {
+    _notes = list
+        .whereType<Map<String, dynamic>>()
+        .map((item) => SyncedNote.fromJson(item))
+        .toList();
+    _lastSyncTime = DateTime.now();
+    _saveCachedData();
+    notifyListeners();
+  }
+
+  void _applyContactsChunk(Map<String, dynamic> payload) {
+    final chunkIndex = payload['chunkIndex'] is int ? payload['chunkIndex'] as int : 0;
+    final totalChunks = payload['totalChunks'] is int ? payload['totalChunks'] as int : 1;
+    final contactsList = payload['contacts'];
+
+    if (chunkIndex == 0) {
+      _contactsMap.clear();
+      _phonePhotoCache.clear();
+      if (payload['contactGroups'] is List) {
+        _contactGroups = (payload['contactGroups'] as List)
+            .whereType<Map<String, dynamic>>()
+            .map((item) => SyncedContactGroup.fromJson(item))
+            .toList();
+      }
+    }
+
+    if (contactsList is List) {
+      for (final item in contactsList.whereType<Map<String, dynamic>>()) {
+        final c = SyncedContact.fromJson(item);
+        _contactsMap[c.id] = c;
+      }
+    }
+
+    _contacts = _contactsMap.values.toList();
+
+    if (chunkIndex + 1 >= totalChunks) {
+      if (payload['timestamp'] is int) {
+        _lastContactsSyncTimestamp = payload['timestamp'] as int;
+      } else {
+        _lastContactsSyncTimestamp = DateTime.now().millisecondsSinceEpoch;
+      }
+      _lastSyncTime = DateTime.now();
+      _saveCachedData();
+    }
+    notifyListeners();
+  }
+
+  void _applyContactsDelta(Map<String, dynamic> payload) {
+    final upserted = payload['upserted'];
+    final deletedIds = payload['deletedIds'];
+
+    if (deletedIds is List) {
+      for (final id in deletedIds) {
+        _contactsMap.remove(id.toString());
+      }
+    }
+
+    if (upserted is List) {
+      for (final item in upserted.whereType<Map<String, dynamic>>()) {
+        final c = SyncedContact.fromJson(item);
+        _contactsMap[c.id] = c;
+      }
+    }
+
+    if (payload['contactGroups'] is List) {
+      _contactGroups = (payload['contactGroups'] as List)
+          .whereType<Map<String, dynamic>>()
+          .map((item) => SyncedContactGroup.fromJson(item))
+          .toList();
+    }
+
+    _contacts = _contactsMap.values.toList();
+    _phonePhotoCache.clear();
+
+    if (payload['timestamp'] is int) {
+      _lastContactsSyncTimestamp = payload['timestamp'] as int;
+    } else {
+      _lastContactsSyncTimestamp = DateTime.now().millisecondsSinceEpoch;
+    }
+    _lastSyncTime = DateTime.now();
+    _saveCachedData();
+    notifyListeners();
+  }
+
+  void _applyContactPhoto(Map<String, dynamic> payload) {
+    final contactId = payload['contactId']?.toString();
+    final photoBase64 = payload['photoBase64']?.toString();
+    if (contactId == null || contactId.isEmpty) return;
+
+    _pendingPhotoRequests.remove(contactId);
+
+    if (photoBase64 != null && photoBase64.isNotEmpty) {
+      _saveAvatarToDisk(contactId, photoBase64);
+    }
+
+    if (_contactsMap.containsKey(contactId)) {
+      final old = _contactsMap[contactId]!;
+      _contactsMap[contactId] = old.copyWith(
+        photoBase64: photoBase64,
+        hasPhoto: photoBase64 != null && photoBase64.isNotEmpty,
+      );
+      _contacts = _contactsMap.values.toList();
+      if (old.phone.isNotEmpty) {
+        final clean = old.phone.replaceAll(RegExp(r'[^\d+]'), '');
+        _phonePhotoCache[clean] = photoBase64;
+      }
+      notifyListeners();
     }
   }
 
@@ -1371,7 +1817,11 @@ class PcSyncService extends ChangeNotifier {
   }
 
   void requestSyncNow() {
-    _sendCommand({'cmd': 'request_sync'});
+    final Map<String, dynamic> cmd = {'cmd': 'request_sync'};
+    if (_lastContactsSyncTimestamp != null && _contacts.isNotEmpty) {
+      cmd['since'] = _lastContactsSyncTimestamp;
+    }
+    _sendCommand(cmd);
   }
 
   void requestTelemetryNow() {
@@ -1413,6 +1863,92 @@ class PcSyncService extends ChangeNotifier {
       'cmd': 'delete_note',
       'id': id,
     });
+  }
+
+  void setContactSimChoice(String contactKey, String choice) {
+    if (contactKey.isEmpty) return;
+    final existing = _contactsMap[contactKey];
+    if (existing != null) {
+      final updated = existing.copyWith(simChoice: choice);
+      _contactsMap[contactKey] = updated;
+      final idx = _contacts.indexWhere((c) => c.id == contactKey);
+      if (idx != -1) {
+        _contacts[idx] = updated;
+      }
+      notifyListeners();
+    }
+    _sendCommand({
+      'cmd': 'set_contact_sim_choice',
+      'contactKey': contactKey,
+      'choice': choice,
+    });
+  }
+
+  int? resolveSimSlotForCall(String number, {SyncedContact? contact}) {
+    if (_simCount <= 1) {
+      return 1;
+    }
+
+    final cleanTarget = number.replaceAll(RegExp(r'\D'), '');
+    SyncedContact? targetContact = contact;
+    if (targetContact == null && cleanTarget.isNotEmpty) {
+      for (final c in _contacts) {
+        final clean = c.phone.replaceAll(RegExp(r'\D'), '');
+        if (clean == cleanTarget ||
+            (clean.length >= 7 && cleanTarget.endsWith(clean)) ||
+            (cleanTarget.length >= 7 && clean.endsWith(cleanTarget))) {
+          targetContact = c;
+          break;
+        }
+      }
+    }
+
+    final choice = targetContact?.simChoice.toLowerCase() ?? 'settings';
+
+    int? findRecentSimInCallLogs() {
+      for (final log in _callLogs) {
+        if (log.simSlot == 1 || log.simSlot == 2) {
+          final logClean = log.number.replaceAll(RegExp(r'\D'), '');
+          if (logClean.isNotEmpty &&
+              (logClean == cleanTarget ||
+                  (logClean.length >= 7 && cleanTarget.endsWith(logClean)) ||
+                  (cleanTarget.length >= 7 && logClean.endsWith(cleanTarget)))) {
+            return log.simSlot;
+          }
+        }
+      }
+      return null;
+    }
+
+    switch (choice) {
+      case 'ask':
+        return null;
+      case 'sim1':
+        return 1;
+      case 'sim2':
+        return 2;
+      case 'call_log':
+      case 'last_for_contact':
+        return findRecentSimInCallLogs();
+      case 'last_in_call':
+        if (_lastUsedSimGlobal == 1 || _lastUsedSimGlobal == 2) {
+          return _lastUsedSimGlobal;
+        }
+        for (final log in _callLogs) {
+          if (log.type == CallType.outgoing && (log.simSlot == 1 || log.simSlot == 2)) {
+            return log.simSlot;
+          }
+        }
+        return null;
+      case 'settings':
+      default:
+        if (_useSimFromCallLog || _defaultSim == 3) {
+          return findRecentSimInCallLogs();
+        }
+        if (_defaultSim == 1) return 1;
+        if (_defaultSim == 2) return 2;
+        return null;
+    }
   }
 
   Future<void> makeCall(String phoneNumber, {int? simSlot}) async {

@@ -162,9 +162,9 @@ EOF
 fi
 
 # -------------------------------------------------------------------
-# 6. PACKAGE APPIMAGE
+# 6. PACKAGE APPIMAGE (INSTALLABLE SETUP WIZARD)
 # -------------------------------------------------------------------
-echo -e "${BLUE}▶ 2/5 Packaging Universal AppImage (Runs on all Linux distros)...${RESET}"
+echo -e "${BLUE}▶ 2/5 Packaging Universal AppImage Setup Wizard (Runs on all Linux distros)...${RESET}"
 APPDIR="/tmp/EverDialer_AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
@@ -175,24 +175,42 @@ cp -r "$BUNDLE_DIR/lib/"* "$APPDIR/usr/lib/" 2>/dev/null || true
 cp "${PROJECT_DIR}/assets/icons/app_icon_512.png" "$APPDIR/ever_dialer_pc.png"
 cp "${PROJECT_DIR}/assets/icons/app_icon_512.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/ever_dialer_pc.png"
 cp "${PROJECT_DIR}/linux/ever_dialer_pc.desktop" "$APPDIR/ever_dialer_pc.desktop"
+cp "${PROJECT_DIR}/uninstall.sh" "$APPDIR/uninstall.sh"
+cp "${PROJECT_DIR}/uninstall.sh" "$APPDIR/usr/bin/uninstall.sh"
+chmod +x "$APPDIR/uninstall.sh" "$APPDIR/usr/bin/uninstall.sh"
 
 cat << 'EOF' > "$APPDIR/AppRun"
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
 export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin/lib:${LD_LIBRARY_PATH}"
-exec "${HERE}/usr/bin/ever_dialer_pc" "$@"
+
+# If portable/run mode is explicitly requested, run the main app directly
+if [ "$1" = "--run" ] || [ "$1" = "--portable" ] || [ "$1" = "--no-installer" ]; then
+    shift
+    exec "${HERE}/usr/bin/ever_dialer_pc" "$@"
+fi
+
+if [ "$1" = "--hidden" ] || [ "$1" = "--background" ] || [ "$1" = "--minimized" ] || [ "$1" = "--installer" ] || [ "$1" = "--setup" ]; then
+    exec "${HERE}/usr/bin/ever_dialer_pc" "$@"
+fi
+
+# By default, launching the AppImage opens the interactive Setup Wizard (like Windows exe installers)
+exec "${HERE}/usr/bin/ever_dialer_pc" --installer "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
+APPIMAGE_SETUP_OUT="${OUTPUT_DIR}/Ever-Dialer-PC-Setup-${VERSION}-${ARCH}.AppImage"
 APPIMAGE_OUT="${OUTPUT_DIR}/Ever-Dialer-PC-${VERSION}-${ARCH}.AppImage"
-rm -f "$APPIMAGE_OUT"
-ARCH=x86_64 appimagetool --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_OUT" > /dev/null 2>&1 || \
-ARCH=x86_64 appimagetool --appimage-extract-and-run --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_OUT" > /dev/null 2>&1 || \
-ARCH=x86_64 appimagetool --appimage-extract-and-run "$APPDIR" "$APPIMAGE_OUT" > /dev/null 2>&1 || true
+rm -f "$APPIMAGE_SETUP_OUT" "$APPIMAGE_OUT"
+ARCH=x86_64 appimagetool --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_SETUP_OUT" > /dev/null 2>&1 || \
+ARCH=x86_64 appimagetool --appimage-extract-and-run --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_SETUP_OUT" > /dev/null 2>&1 || \
+ARCH=x86_64 appimagetool --appimage-extract-and-run "$APPDIR" "$APPIMAGE_SETUP_OUT" > /dev/null 2>&1 || true
 
-if [ -f "$APPIMAGE_OUT" ]; then
-    chmod +x "$APPIMAGE_OUT"
-    echo -e "${GREEN}  ✓ Created AppImage:${RESET} $(basename "$APPIMAGE_OUT")"
+if [ -f "$APPIMAGE_SETUP_OUT" ]; then
+    chmod +x "$APPIMAGE_SETUP_OUT"
+    cp -f "$APPIMAGE_SETUP_OUT" "$APPIMAGE_OUT"
+    echo -e "${GREEN}  ✓ Created AppImage Setup Wizard:${RESET} $(basename "$APPIMAGE_SETUP_OUT")"
+    echo -e "${GREEN}  ✓ Created AppImage Release:${RESET} $(basename "$APPIMAGE_OUT")"
 else
     echo -e "${YELLOW}  ⚠ AppImage creation skipped or failed${RESET}"
 fi

@@ -25,13 +25,11 @@ class MobileLandscapeLayout extends StatefulWidget {
 
 class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   int _selectedIndex = 0; // 0: Favourites, 1: Calls, 2: Contacts, 3: SMS, 4: Notes
-  int _previousIndex = 0;
   bool _isMobileView = false;
 
   void _changeTab(int newIndex) {
     if (newIndex == _selectedIndex) return;
     setState(() {
-      _previousIndex = _selectedIndex;
       _selectedIndex = newIndex;
     });
   }
@@ -106,16 +104,282 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     final resolvedName = displayName ?? (matchingContact?.name.isNotEmpty == true ? matchingContact!.name : number);
     final resolvedPhoto = photoBase64 ?? matchingContact?.photoBase64 ?? widget.syncService.getPhotoBase64ForNumber(number);
 
-    if (widget.syncService.confirmPlacingCall) {
-      _showConfirmCallDialog(
-        number: number,
-        displayName: resolvedName,
-        photoBase64: resolvedPhoto,
-        simSlot: simSlot,
-      );
-    } else {
-      _executeCall(number, resolvedName, simSlot: simSlot);
+    if (simSlot != null && simSlot > 0) {
+      if (widget.syncService.confirmPlacingCall) {
+        _showConfirmCallDialog(
+          number: number,
+          displayName: resolvedName,
+          photoBase64: resolvedPhoto,
+          simSlot: simSlot,
+        );
+      } else {
+        _executeCall(number, resolvedName, simSlot: simSlot);
+      }
+      return;
     }
+
+    // Dual-SIM check: resolve specific SIM or show SIM picker
+    if (widget.syncService.simCount >= 2) {
+      final resolvedSim = widget.syncService.resolveSimSlotForCall(number, contact: matchingContact);
+      if (resolvedSim != null) {
+        if (widget.syncService.confirmPlacingCall) {
+          _showConfirmCallDialog(
+            number: number,
+            displayName: resolvedName,
+            photoBase64: resolvedPhoto,
+            simSlot: resolvedSim,
+          );
+        } else {
+          _executeCall(number, resolvedName, simSlot: resolvedSim);
+        }
+      } else {
+        // Needs SIM picker
+        _showSimPickerDialog(
+          number: number,
+          displayName: resolvedName,
+          photoBase64: resolvedPhoto,
+          onSimSelected: (chosenSlot) {
+            if (widget.syncService.confirmPlacingCall) {
+              _showConfirmCallDialog(
+                number: number,
+                displayName: resolvedName,
+                photoBase64: resolvedPhoto,
+                simSlot: chosenSlot,
+              );
+            } else {
+              _executeCall(number, resolvedName, simSlot: chosenSlot);
+            }
+          },
+        );
+      }
+    } else {
+      // Single SIM
+      if (widget.syncService.confirmPlacingCall) {
+        _showConfirmCallDialog(
+          number: number,
+          displayName: resolvedName,
+          photoBase64: resolvedPhoto,
+          simSlot: 1,
+        );
+      } else {
+        _executeCall(number, resolvedName, simSlot: 1);
+      }
+    }
+  }
+
+  void _showSimPickerDialog({
+    required String number,
+    required String displayName,
+    String? photoBase64,
+    required Function(int simSlot) onSimSelected,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final hasCustomName = displayName.trim().isNotEmpty && displayName.trim() != number.trim();
+
+    final sim1Color = widget.syncService.sim1Color;
+    final sim2Color = widget.syncService.sim2Color;
+    final sim1Label = widget.syncService.sim1Label;
+    final sim2Label = widget.syncService.sim2Label;
+    final sim1Number = widget.syncService.sim1Number;
+    final sim2Number = widget.syncService.sim2Number;
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      builder: (dialogCtx) {
+        Widget buildSimCard({
+          required int slot,
+          required Color color,
+          required String label,
+          String? simNum,
+          required VoidCallback onTap,
+        }) {
+          final titleText = label.isNotEmpty ? label : 'SIM $slot';
+          final subText = simNum != null && simNum.isNotEmpty
+              ? simNum
+              : (slot == 1 ? 'Primary SIM' : 'Secondary SIM');
+
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    ClipPath(
+                      clipper: const _SimCardNotchClipper(),
+                      child: Container(
+                        width: 26,
+                        height: 32,
+                        color: color,
+                        alignment: Alignment.center,
+                        child: Text(
+                          '$slot',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            height: 1.0,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            titleText,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            subText,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.call, size: 18, color: color),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Material(
+              color: colorScheme.surfaceContainerHigh,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(32),
+              ),
+              elevation: 12,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(100),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.sim_card,
+                            size: 15,
+                            color: colorScheme.onPrimaryContainer,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Choose SIM',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Call via',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      hasCustomName ? '$displayName • $number' : number,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 20),
+
+                    // SIM Options
+                    buildSimCard(
+                      slot: 1,
+                      color: sim1Color,
+                      label: sim1Label,
+                      simNum: sim1Number,
+                      onTap: () {
+                        Navigator.pop(dialogCtx);
+                        onSimSelected(1);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    buildSimCard(
+                      slot: 2,
+                      color: sim2Color,
+                      label: sim2Label,
+                      simNum: sim2Number,
+                      onTap: () {
+                        Navigator.pop(dialogCtx);
+                        onSimSelected(2);
+                      },
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Cancel button
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(dialogCtx),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _executeCall(String number, String displayName, {int? simSlot}) {
@@ -471,55 +735,61 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
             final isMobile = constraints.maxWidth < 640 || constraints.maxWidth < constraints.maxHeight;
             _isMobileView = isMobile;
 
-            final direction = activeIndex >= _previousIndex ? 1 : -1;
-
-            Widget pageWidget;
-            switch (activeIndex) {
-              case 0:
-                pageWidget = _buildFavouritesView();
-                break;
-              case 1:
-                pageWidget = _buildCallLogsView();
-                break;
-              case 2:
-                pageWidget = _buildContactsView();
-                break;
-              case 3:
-                pageWidget = _buildSmsView();
-                break;
-              case 4:
-                pageWidget = _buildNotesView();
-                break;
-              default:
-                pageWidget = Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.sync_disabled, size: 48, color: colorScheme.outline),
-                      const SizedBox(height: 12),
-                      Text(
-                        'All sync categories are disabled',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
+            Widget mainPageContent;
+            if (activeIndex == -1) {
+              mainPageContent = Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.sync_disabled, size: 48, color: colorScheme.outline),
+                    const SizedBox(height: 12),
+                    Text(
+                      'All sync categories are disabled',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Enable categories in PC Connect settings on your phone.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.outline,
-                        ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Enable categories in PC Connect settings on your phone.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.outline,
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              );
+            } else {
+              mainPageContent = IndexedStack(
+                index: activeIndex.clamp(0, 4),
+                children: [
+                  RepaintBoundary(
+                    key: const ValueKey('tab_favourites'),
+                    child: _buildFavouritesView(),
                   ),
-                );
-                break;
+                  RepaintBoundary(
+                    key: const ValueKey('tab_calls'),
+                    child: _buildCallLogsView(),
+                  ),
+                  RepaintBoundary(
+                    key: const ValueKey('tab_contacts'),
+                    child: _buildContactsView(),
+                  ),
+                  RepaintBoundary(
+                    key: const ValueKey('tab_sms'),
+                    child: _buildSmsView(),
+                  ),
+                  RepaintBoundary(
+                    key: const ValueKey('tab_notes'),
+                    child: _buildNotesView(),
+                  ),
+                ],
+              );
             }
 
             final blur = widget.appearance?.backgroundBlur ?? 0.0;
-            Widget animatedPageContent = pageWidget;
             if (blur > 0.0) {
-              animatedPageContent = Stack(
+              mainPageContent = Stack(
                 children: [
                   Positioned.fill(
                     child: ClipRect(
@@ -529,72 +799,16 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       ),
                     ),
                   ),
-                  animatedPageContent,
+                  mainPageContent,
                 ],
               );
             }
 
-            // Main Content Area with Snappy, Smooth Material 3 Shared Axis & Fade-Through Transition
+            // Main Content Area with instant, lag-free IndexedStack navigation
             final contentArea = Expanded(
               child: Material(
                 color: colorScheme.surface,
-                child: ClipRect(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 260),
-                    switchInCurve: const Cubic(0.05, 0.7, 0.1, 1.0),
-                    switchOutCurve: Curves.easeInQuad,
-                    layoutBuilder: (currentChild, previousChildren) {
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          ...previousChildren.map((child) => IgnorePointer(child: child)),
-                          ?currentChild,
-                        ],
-                      );
-                    },
-                    transitionBuilder: (child, animation) {
-                      final isIncoming = child.key == ValueKey<int>(activeIndex);
-                      if (isIncoming) {
-                        final curved = CurvedAnimation(
-                          parent: animation,
-                          curve: const Cubic(0.05, 0.7, 0.1, 1.0),
-                        );
-                        return FadeTransition(
-                          opacity: CurvedAnimation(
-                            parent: animation,
-                            curve: const Interval(0.15, 1.0, curve: Curves.easeOut),
-                          ),
-                          child: ScaleTransition(
-                            scale: Tween<double>(begin: 0.985, end: 1.0).animate(curved),
-                            child: SlideTransition(
-                              position: Tween<Offset>(
-                                begin: Offset(direction * 0.035, 0.0),
-                                end: Offset.zero,
-                              ).animate(curved),
-                              child: child,
-                            ),
-                          ),
-                        );
-                      } else {
-                        final curvedOut = CurvedAnimation(
-                          parent: animation,
-                          curve: const Interval(0.0, 0.6, curve: Curves.easeInQuad),
-                        );
-                        return FadeTransition(
-                          opacity: curvedOut,
-                          child: ScaleTransition(
-                            scale: Tween<double>(begin: 0.985, end: 1.0).animate(curvedOut),
-                            child: child,
-                          ),
-                        );
-                      }
-                    },
-                    child: KeyedSubtree(
-                      key: ValueKey<int>(activeIndex),
-                      child: animatedPageContent,
-                    ),
-                  ),
-                ),
+                child: mainPageContent,
               ),
             );
 
@@ -777,7 +991,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
     );
 
     setState(() {
-      _previousIndex = _selectedIndex;
       _selectedIndex = 3; // Switch to SMS tab
       if (existingIndex != -1) {
         _selectedSmsThreadId = widget.syncService.smsThreads[existingIndex].id;
@@ -952,7 +1165,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
   void _showNewMessageDialog(BuildContext context, {String? initialNumber}) {
     setState(() {
       _isNewMessageActive = true;
-      _previousIndex = _selectedIndex;
       _selectedIndex = 3;
       _newMessageSearchQuery = initialNumber ?? '';
       _newMessageSearchController.text = initialNumber ?? '';
@@ -1639,7 +1851,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                           Material(
                             color: colorScheme.surfaceContainerLow,
                             borderRadius: BorderRadius.circular(24),
-                            clipBehavior: Clip.antiAlias,
                             child: Column(
                               children: [
                                 for (int i = 0; i < logsInGroup.length; i++) ...[
@@ -2167,7 +2378,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       Material(
                         color: colorScheme.surfaceContainerLow,
                         borderRadius: BorderRadius.circular(24),
-                        clipBehavior: Clip.antiAlias,
                         child: Column(
                           children: [
                             for (int i = 0; i < contactsInGroup.length; i++) ...[
@@ -2215,6 +2425,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           setState(() {
             _selectedContactForDetails = contact;
           });
+          if (contact.hasPhoto && contact.photoBase64 == null) {
+            widget.syncService.requestContactPhoto(contact.id);
+          }
         },
         leading: Builder(
           builder: (context) {
@@ -2224,6 +2437,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
               initials: contact.initials,
               backgroundColor: colorScheme.primaryContainer,
               foregroundColor: colorScheme.onPrimaryContainer,
+              onPhotoNeeded: (contact.hasPhoto && contact.photoBase64 == null)
+                  ? () => widget.syncService.requestContactPhoto(contact.id)
+                  : null,
             );
           },
         ),
@@ -2416,6 +2632,9 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       initials: contact.initials,
                       backgroundColor: colorScheme.primaryContainer,
                       foregroundColor: colorScheme.onPrimaryContainer,
+                      onPhotoNeeded: (contact.hasPhoto && contact.photoBase64 == null)
+                          ? () => widget.syncService.requestContactPhoto(contact.id)
+                          : null,
                     ),
                   ],
                 ),
@@ -2788,6 +3007,55 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                                 ),
                               ),
                       ),
+                      // Choose Sim Card
+                      _buildInfoSectionCard(
+                        title: 'Choose Sim',
+                        icon: Icons.sim_card_outlined,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => _showChooseSimDialog(contact),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 20,
+                                    backgroundColor: colorScheme.surfaceContainerHighest,
+                                    child: Icon(
+                                      Icons.sim_card,
+                                      color: colorScheme.primary,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _getContactSimChoiceLabel(contact.simChoice),
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _getContactSimChoiceSubLabel(contact.simChoice),
+                                          style: TextStyle(fontSize: 12, color: colorScheme.outline),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right,
+                                    color: colorScheme.onSurfaceVariant,
+                                    size: 20,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       const SizedBox(height: 16),
 
                       // 6. Saved In Card
@@ -2881,6 +3149,275 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           child,
         ],
       ),
+    );
+  }
+
+  String _getContactSimChoiceLabel(String choice) {
+    switch (choice.toLowerCase()) {
+      case 'ask':
+        return 'Ask Every Time';
+      case 'sim1':
+        return 'SIM 1';
+      case 'sim2':
+        return 'SIM 2';
+      case 'call_log':
+        return 'Use SIM based on call logs';
+      case 'last_for_contact':
+        return 'Last Used SIM for This Contact';
+      case 'last_in_call':
+        return 'Last Used SIM in Previous Call';
+      case 'settings':
+      default:
+        return 'According to Settings';
+    }
+  }
+
+  String _getContactSimChoiceSubLabel(String choice) {
+    switch (choice.toLowerCase()) {
+      case 'ask':
+        return 'Show the SIM picker on every call';
+      case 'sim1':
+        return widget.syncService.sim1Label;
+      case 'sim2':
+        return widget.syncService.sim2Label;
+      case 'call_log':
+        return 'Automatically select the same SIM from call log history';
+      case 'last_for_contact':
+        return 'Reuse the SIM from the most recent call with them';
+      case 'last_in_call':
+        return 'Reuse the SIM from the last call made from the app';
+      case 'settings':
+      default:
+        final defaultDesc = switch (widget.syncService.defaultSim) {
+          1 => 'SIM 1',
+          2 => 'SIM 2',
+          3 => 'Use SIM based on call logs',
+          _ => widget.syncService.useSimFromCallLog ? 'Use SIM based on call logs' : 'Ask every time',
+        };
+        return 'Use the phone-wide default SIM setting ($defaultDesc)';
+    }
+  }
+
+  void _showChooseSimDialog(SyncedContact contact) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final defaultSimStr = switch (widget.syncService.defaultSim) {
+      1 => 'SIM 1 (${widget.syncService.sim1Label})',
+      2 => 'SIM 2 (${widget.syncService.sim2Label})',
+      3 => 'Use SIM based on call logs',
+      _ => widget.syncService.useSimFromCallLog ? 'Use SIM based on call logs' : 'Ask every time',
+    };
+
+    final options = [
+      (
+        value: 'settings',
+        label: 'According to Settings',
+        subLabel: 'Use phone default: $defaultSimStr',
+        icon: Icons.tune,
+      ),
+      (
+        value: 'ask',
+        label: 'Ask Every Time',
+        subLabel: 'Show the SIM picker on every call',
+        icon: Icons.help_outline,
+      ),
+      (
+        value: 'sim1',
+        label: 'SIM 1',
+        subLabel: widget.syncService.sim1Label,
+        icon: Icons.sim_card,
+      ),
+      (
+        value: 'sim2',
+        label: 'SIM 2',
+        subLabel: widget.syncService.sim2Label,
+        icon: Icons.sim_card,
+      ),
+      (
+        value: 'call_log',
+        label: 'Use SIM based on call logs',
+        subLabel: 'Automatically select the same SIM from call log history',
+        icon: Icons.history,
+      ),
+      (
+        value: 'last_for_contact',
+        label: 'Last Used SIM for This Contact',
+        subLabel: 'Reuse the SIM from the most recent call with them',
+        icon: Icons.history,
+      ),
+      (
+        value: 'last_in_call',
+        label: 'Last Used SIM in Previous Call',
+        subLabel: 'Reuse the SIM from the last call made from the app',
+        icon: Icons.phone_callback,
+      ),
+    ];
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      builder: (dialogCtx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Material(
+              color: colorScheme.surfaceContainerHigh,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(32),
+              ),
+              elevation: 12,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 22),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(100),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.sim_card,
+                            size: 15,
+                            color: colorScheme.onPrimaryContainer,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Choose SIM',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Choose SIM for ${contact.name}',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 16),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 380),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            for (final opt in options) ...[
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8.0),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () {
+                                      Navigator.pop(dialogCtx);
+                                      widget.syncService.setContactSimChoice(contact.id, opt.value);
+                                      if (_selectedContactForDetails?.id == contact.id) {
+                                        setState(() {
+                                          _selectedContactForDetails = _selectedContactForDetails?.copyWith(simChoice: opt.value);
+                                        });
+                                      }
+                                    },
+                                    borderRadius: BorderRadius.circular(18),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                      decoration: BoxDecoration(
+                                        color: contact.simChoice.toLowerCase() == opt.value
+                                            ? colorScheme.primaryContainer.withValues(alpha: 0.55)
+                                            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                                        borderRadius: BorderRadius.circular(18),
+                                        border: Border.all(
+                                          color: contact.simChoice.toLowerCase() == opt.value
+                                              ? colorScheme.primary
+                                              : colorScheme.outlineVariant.withValues(alpha: 0.35),
+                                          width: contact.simChoice.toLowerCase() == opt.value ? 2 : 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            opt.icon,
+                                            size: 20,
+                                            color: contact.simChoice.toLowerCase() == opt.value
+                                                ? colorScheme.primary
+                                                : colorScheme.onSurfaceVariant,
+                                          ),
+                                          const SizedBox(width: 14),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  opt.label,
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: contact.simChoice.toLowerCase() == opt.value
+                                                        ? FontWeight.bold
+                                                        : FontWeight.w600,
+                                                    color: colorScheme.onSurface,
+                                                  ),
+                                                ),
+                                                if (opt.subLabel.isNotEmpty) ...[
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    opt.subLabel,
+                                                    style: TextStyle(
+                                                      fontSize: 11.5,
+                                                      color: colorScheme.onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                          if (contact.simChoice.toLowerCase() == opt.value)
+                                            Icon(
+                                              Icons.check_circle,
+                                              size: 18,
+                                              color: colorScheme.primary,
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(dialogCtx),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -3413,11 +3950,11 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       );
       threadWidgets.add(
         Container(
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: colorScheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(20),
           ),
-          clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
               for (int i = 0; i < pinnedThreads.length; i++) ...[
@@ -3455,11 +3992,11 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       );
       threadWidgets.add(
         Container(
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: colorScheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(20),
           ),
-          clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
               for (int i = 0; i < threadsInGroup.length; i++) ...[
@@ -3564,9 +4101,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         ),
                       ),
                     )
-                  : ListView(
+                  : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      children: threadWidgets,
+                      itemCount: threadWidgets.length,
+                      itemBuilder: (context, index) => threadWidgets[index],
                     ),
             ),
           ],
@@ -3887,12 +4425,7 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                                   color: isOut
                                       ? colorScheme.primaryContainer
                                       : colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.only(
-                                    topLeft: const Radius.circular(16),
-                                    topRight: const Radius.circular(16),
-                                    bottomLeft: Radius.circular(isOut ? 16 : 4),
-                                    bottomRight: Radius.circular(isOut ? 4 : 16),
-                                  ),
+                                  borderRadius: BorderRadius.circular(18),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: isOut
@@ -3954,11 +4487,13 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                         );
                       }
 
+                      final reversedWidgets = chatWidgets.reversed.toList();
                       return SelectionArea(
-                        child: ListView(
+                        child: ListView.builder(
                           reverse: true,
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          children: chatWidgets.reversed.toList(),
+                          itemCount: reversedWidgets.length,
+                          itemBuilder: (context, index) => reversedWidgets[index],
                         ),
                       );
                     },
@@ -4501,7 +5036,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         switch (action) {
           case 'view_contact':
             setState(() {
-              _previousIndex = _selectedIndex;
               _selectedIndex = 2;
               _selectedContactForDetails = contact;
             });
@@ -4607,7 +5141,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           case 'view_contact':
             if (matchingContact != null) {
               setState(() {
-                _previousIndex = _selectedIndex;
                 _selectedIndex = 2;
                 _selectedContactForDetails = matchingContact;
               });
@@ -4718,7 +5251,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
         switch (action) {
           case 'view_contact':
             setState(() {
-              _previousIndex = _selectedIndex;
               _selectedIndex = 2;
               _selectedContactForDetails = contact;
             });
@@ -4903,19 +5435,25 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
       behavior: HitTestBehavior.opaque,
       onSecondaryTapDown: (details) => _showSmsThreadContextMenu(context, details.globalPosition, thread),
       onLongPressStart: (details) => _showSmsThreadContextMenu(context, details.globalPosition, thread),
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            _selectedSmsThreadId = thread.id;
-          });
-          if (thread.unreadCount > 0) {
-            widget.syncService.markSmsAsRead(thread.id);
-          }
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Material(
           color: bgColor,
-          child: Row(
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () {
+              setState(() {
+                _selectedSmsThreadId = thread.id;
+              });
+              if (thread.unreadCount > 0) {
+                widget.syncService.markSmsAsRead(thread.id);
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              child: Row(
             children: [
               Builder(
                 builder: (context) {
@@ -5043,8 +5581,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  ),
+);
+}
 
   void _showMessageContextMenu(BuildContext context, Offset position, String threadId, SyncedSmsMessage msg) {
     final theme = Theme.of(context);

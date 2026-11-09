@@ -109,6 +109,9 @@ class SystemService extends ChangeNotifier {
   Future<void> refreshPcVolume() async {
     try {
       if (Platform.isLinux) {
+        final oldVol = _pcVolume;
+        final oldMuted = _pcMuted;
+
         final res = await Process.run('pactl', ['get-sink-volume', '@DEFAULT_SINK@']);
         if (res.exitCode == 0) {
           final match = RegExp(r'(\d+)%').firstMatch(res.stdout.toString());
@@ -120,7 +123,9 @@ class SystemService extends ChangeNotifier {
         if (muteRes.exitCode == 0) {
           _pcMuted = muteRes.stdout.toString().toLowerCase().contains('yes');
         }
-        notifyListeners();
+        if (_pcVolume != oldVol || _pcMuted != oldMuted) {
+          notifyListeners();
+        }
       }
     } catch (e) {
       debugPrint('[SystemService] Error refreshing PC volume: $e');
@@ -240,27 +245,37 @@ X-GNOME-Autostart-enabled=true
   Future<String?> detectSystemPackage() async {
     try {
       if (!Platform.isLinux) return null;
-      // 1. RPM (Fedora, RHEL, openSUSE)
+      final home = Platform.environment['HOME'] ?? '';
+
+      // 1. AppImage Setup Wizard installation (~/.local/share/ever_dialer_pc)
+      if (home.isNotEmpty && File('$home/.local/share/ever_dialer_pc/ever_dialer_pc').existsSync()) {
+        return 'AppImage Setup Wizard (~/.local/share/ever_dialer_pc)';
+      }
+      if (home.isNotEmpty && File('$home/.local/opt/ever_dialer_pc/ever_dialer_pc').existsSync()) {
+        return 'User Directory Installation (~/.local/opt/ever_dialer_pc)';
+      }
+
+      // 2. RPM (Fedora, RHEL, openSUSE)
       final rpmCheck = await Process.run('bash', ['-c', 'command -v rpm >/dev/null 2>&1 && rpm -q ever-dialer-pc >/dev/null 2>&1']);
       if (rpmCheck.exitCode == 0) return 'RPM Package (Fedora / RHEL / openSUSE)';
 
-      // 2. DEB (Debian, Ubuntu, Linux Mint, Pop!_OS)
+      // 3. DEB (Debian, Ubuntu, Linux Mint, Pop!_OS)
       final debCheck = await Process.run('bash', ['-c', 'command -v dpkg >/dev/null 2>&1 && dpkg -s ever-dialer-pc >/dev/null 2>&1']);
       if (debCheck.exitCode == 0) return 'DEB Package (Debian / Ubuntu / Mint / Pop!_OS)';
 
-      // 3. Arch Linux / Manjaro / EndeavourOS
+      // 4. Arch Linux / Manjaro / EndeavourOS
       final archCheck = await Process.run('bash', ['-c', 'command -v pacman >/dev/null 2>&1 && pacman -Q ever-dialer-pc >/dev/null 2>&1']);
       if (archCheck.exitCode == 0) return 'Arch Linux Package (pacman)';
 
-      // 4. Flatpak
+      // 5. Flatpak
       final flatpakCheck = await Process.run('bash', ['-c', 'command -v flatpak >/dev/null 2>&1 && flatpak info com.everdialer.ever_dialer_pc >/dev/null 2>&1']);
       if (flatpakCheck.exitCode == 0) return 'Flatpak Package';
 
-      // 5. Snap
+      // 6. Snap
       final snapCheck = await Process.run('bash', ['-c', 'command -v snap >/dev/null 2>&1 && snap list ever-dialer-pc >/dev/null 2>&1']);
       if (snapCheck.exitCode == 0) return 'Snap Package';
 
-      // 6. Manual root files in /opt or /usr
+      // 7. Manual root files in /opt or /usr
       final sysFilesCheck = await Process.run('bash', ['-c', '[ -d "/opt/ever_dialer_pc" ] || [ -f "/usr/bin/ever_dialer_pc" ] || [ -f "/usr/local/bin/ever_dialer_pc" ] || [ -f "/usr/share/applications/ever_dialer_pc.desktop" ]']);
       if (sysFilesCheck.exitCode == 0) return 'System Root Files (/opt or /usr)';
 
@@ -311,7 +326,7 @@ fi
       final home = Platform.environment['HOME'] ?? '';
       if (home.isEmpty) return;
 
-      // 1. Terminate sync daemon
+      // 1. Terminate sync daemon & active Ever Dialer processes
       try {
         await Process.run('pkill', ['-f', 'bt_sync_daemon.py']);
       } catch (e) {
@@ -319,22 +334,30 @@ fi
       }
 
       // 1.5 If a system package/root installation is detected, remove it using pkexec
-      if ((removeSysPackage || removeRpm) && (await detectSystemPackage()) != null) {
+      final detectedPkg = await detectSystemPackage();
+      final isRootSysPackage = detectedPkg != null && !detectedPkg.contains('~/.local');
+      if ((removeSysPackage || removeRpm) && isRootSysPackage) {
         await removeSystemPackage();
       }
 
-      // 2. Remove desktop shortcuts, symlinks, and autostart entries
+      // 2. Remove desktop shortcuts, symlinks, desktop icons, and autostart entries
       try {
         await Process.run('bash', [
           '-c',
           '''
+DESKTOP_DIR="\$(xdg-user-dir DESKTOP 2>/dev/null || echo "\$HOME/Desktop")"
+rm -f "\$DESKTOP_DIR/Ever Dialer PC.desktop"
+rm -f "\$DESKTOP_DIR/ever_dialer_pc.desktop"
+rm -f "$home/Desktop/Ever Dialer PC.desktop"
+rm -f "$home/Desktop/ever_dialer_pc.desktop"
+
 rm -f "$home/.local/share/applications/ever_dialer_pc.desktop"
 rm -f "$home/.local/share/applications/com.everdialer.ever_dialer_pc.desktop"
 rm -f "$home/.config/autostart/ever_dialer_pc.desktop"
+rm -f "$home/.local/bin/ever_dialer_pc"
 rm -f /tmp/everdialer_bt_sync.lock
 
 # If a system-wide desktop entry exists in /usr/share/applications, mask it
-# so it does not unmask and show up in the application drawer
 if [ -f "/usr/share/applications/ever_dialer_pc.desktop" ] || [ -f "/usr/local/share/applications/ever_dialer_pc.desktop" ]; then
   cat << 'EOF' > "$home/.local/share/applications/ever_dialer_pc.desktop"
 [Desktop Entry]
@@ -356,6 +379,7 @@ fi
 update-desktop-database "$home/.local/share/applications" 2>/dev/null || true
 kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null || true
 rm -f "$home/.local/share/icons/hicolor/"*/apps/ever_dialer_pc.png 2>/dev/null || true
+rm -f "$home/.local/share/pixmaps/ever_dialer_pc.png" 2>/dev/null || true
 gtk-update-icon-cache "$home/.local/share/icons/hicolor" 2>/dev/null || true
 '''
         ]);
@@ -363,7 +387,7 @@ gtk-update-icon-cache "$home/.local/share/icons/hicolor" 2>/dev/null || true
         debugPrint('[SystemService] Error cleaning desktop entries: $e');
       }
 
-      // 4. Remove local app cache, preferences and data
+      // 3. Remove local app cache, preferences and data
       final dirsToDelete = [
         '$home/.local/share/com.everdialer.ever_dialer_pc',
         '$home/.config/ever_dialer_pc',
@@ -373,6 +397,23 @@ gtk-update-icon-cache "$home/.local/share/icons/hicolor" 2>/dev/null || true
         if (await d.exists()) {
           try {
             await d.delete(recursive: true);
+          } catch (_) {}
+        }
+      }
+
+      // 4. Clean user installation folders (~/.local/share/ever_dialer_pc) via detached process
+      // to avoid file locking while this binary is exiting
+      final userInstallDirs = [
+        '$home/.local/share/ever_dialer_pc',
+        '$home/.local/opt/ever_dialer_pc',
+      ];
+      for (final uPath in userInstallDirs) {
+        if (Directory(uPath).existsSync()) {
+          try {
+            await Process.run('bash', [
+              '-c',
+              'nohup sh -c "sleep 0.6 && rm -rf \\"$uPath\\"" >/dev/null 2>&1 &'
+            ]);
           } catch (_) {}
         }
       }
