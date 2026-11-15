@@ -5,6 +5,12 @@
             "name": "Ever Dialer PC (Linux)",
             "request": "launch",
             "type": "dart",
+            "program": "lib/main.dart"
+        },
+        {
+            "name": "Ever Dialer PC (Explicit linux device)",
+            "request": "launch",
+            "type": "dart",
             "deviceId": "linux",
             "program": "lib/main.dart"
         },
@@ -12,7 +18,6 @@
             "name": "Ever Dialer PC (Release)",
             "request": "launch",
             "type": "dart",
-            "deviceId": "linux",
             "flutterMode": "release",
             "noDebug": true,
             "program": "lib/main.dart"
