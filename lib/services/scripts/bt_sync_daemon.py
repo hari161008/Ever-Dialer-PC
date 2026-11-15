@@ -14,17 +14,23 @@ import select
 import signal
 import time
 import threading
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+import tempfile
 
 EVER_DIALER_UUID = "fa87c0d0-afac-11de-8a39-0800200c9a66"
 SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"
 RFCOMM_CHANNEL = 4
 
-LOCK_FILE = "/tmp/everdialer_bt_sync.lock"
+LOCK_FILE = os.path.join(tempfile.gettempdir(), "everdialer_bt_sync.lock")
 lock_fd = None
 
 def acquire_process_lock():
     global lock_fd
+    if fcntl is None:
+        return True
     try:
         lock_fd = open(LOCK_FILE, 'w')
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -153,6 +159,8 @@ def try_connect_rfcomm(mac, channel=RFCOMM_CHANNEL):
         log(f"Outgoing RFCOMM connect to {mac} channel {channel} failed: {e}")
 
 def start_bluez_profile():
+    if not sys.platform.startswith("linux"):
+        return None
     try:
         import dbus
         import dbus.service

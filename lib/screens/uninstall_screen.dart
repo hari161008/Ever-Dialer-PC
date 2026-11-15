@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/system_service.dart';
 import '../services/sync_service.dart';
@@ -72,18 +73,22 @@ class _UninstallScreenState extends State<UninstallScreen> {
                   child: Row(
                     children: [
                       Icon(
-                        _detectedPackageType!.contains('~/.local')
-                            ? Icons.install_desktop_outlined
-                            : Icons.admin_panel_settings_outlined,
+                        Platform.isWindows
+                            ? Icons.verified_user_outlined
+                            : (_detectedPackageType!.contains('~/.local')
+                                ? Icons.install_desktop_outlined
+                                : Icons.admin_panel_settings_outlined),
                         size: 20,
                         color: colorScheme.primary,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          _detectedPackageType!.contains('~/.local')
-                              ? 'Will remove $_detectedPackageType and associated desktop shortcuts.'
-                              : 'You will be prompted for your password to remove $_detectedPackageType.',
+                          Platform.isWindows
+                              ? 'Will remove $_detectedPackageType, desktop & start menu shortcuts, and application data.'
+                              : (_detectedPackageType!.contains('~/.local')
+                                  ? 'Will remove $_detectedPackageType and associated desktop shortcuts.'
+                                  : 'You will be prompted for your password to remove $_detectedPackageType.'),
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -213,43 +218,55 @@ class _UninstallScreenState extends State<UninstallScreen> {
                 _buildRemovalItem(
                   icon: Icons.launch_outlined,
                   title: 'Desktop Application Launchers',
-                  subtitle: '~/.local/share/applications/ever_dialer_pc.desktop',
+                  subtitle: Platform.isWindows
+                      ? 'Desktop & Start Menu Shortcuts'
+                      : '~/.local/share/applications/ever_dialer_pc.desktop',
                   colorScheme: colorScheme,
                 ),
                 const RivoDivider(),
                 _buildRemovalItem(
                   icon: Icons.power_settings_new_outlined,
                   title: 'Autostart on Boot',
-                  subtitle: '~/.config/autostart/ever_dialer_pc.desktop',
+                  subtitle: Platform.isWindows
+                      ? 'Windows Startup Shortcut'
+                      : '~/.config/autostart/ever_dialer_pc.desktop',
                   colorScheme: colorScheme,
                 ),
                 const RivoDivider(),
                 _buildRemovalItem(
                   icon: Icons.image_outlined,
                   title: 'Desktop System Icons',
-                  subtitle: '~/.local/share/icons/hicolor/...',
+                  subtitle: Platform.isWindows
+                      ? 'Application & Start Menu Icons'
+                      : '~/.local/share/icons/hicolor/...',
                   colorScheme: colorScheme,
                 ),
                 const RivoDivider(),
                 _buildRemovalItem(
                   icon: Icons.sync_disabled_outlined,
                   title: 'Bluetooth Sync Daemon',
-                  subtitle: 'Terminates active bt_sync_daemon.py and lock files',
+                  subtitle: Platform.isWindows
+                      ? 'Terminates active bt_sync_daemon.exe'
+                      : 'Terminates active bt_sync_daemon.py and lock files',
                   colorScheme: colorScheme,
                 ),
                 const RivoDivider(),
                 _buildRemovalItem(
                   icon: Icons.folder_delete_outlined,
                   title: 'Cached Data & Preferences',
-                  subtitle: 'Removes local cache, paired sync data & preferences',
+                  subtitle: Platform.isWindows
+                      ? 'Removes %USERPROFILE%/.cache/everdialer and app data'
+                      : 'Removes local cache, paired sync data & preferences',
                   colorScheme: colorScheme,
                 ),
                 if (_detectedPackageType != null) ...[
                   const RivoDivider(),
                   _buildRemovalItem(
-                    icon: _detectedPackageType!.contains('~/.local')
-                        ? Icons.install_desktop_outlined
-                        : Icons.admin_panel_settings_outlined,
+                    icon: Platform.isWindows
+                        ? Icons.verified_user_outlined
+                        : (_detectedPackageType!.contains('~/.local')
+                            ? Icons.install_desktop_outlined
+                            : Icons.admin_panel_settings_outlined),
                     title: 'Installed Application Files',
                     subtitle: _detectedPackageType!,
                     colorScheme: colorScheme,

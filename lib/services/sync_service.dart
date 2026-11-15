@@ -996,7 +996,9 @@ class PcSyncService extends ChangeNotifier {
   static Directory? _avatarDir;
   static Directory get _avatarDirectory {
     if (_avatarDir != null) return _avatarDir!;
-    final home = Platform.environment['HOME'] ?? '.';
+    final home = Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'] ??
+        '.';
     final dir = Directory('$home/.cache/everdialer/avatars');
     if (!dir.existsSync()) {
       dir.createSync(recursive: true);
@@ -1124,6 +1126,65 @@ class PcSyncService extends ChangeNotifier {
 
   void _startBluetoothDaemon() {
     _stopBluetoothDaemon();
+
+    if (Platform.isWindows) {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final candidateWindowsPaths = [
+        '$exeDir/bt_sync_daemon.exe',
+        'build/windows/x64/runner/Release/bt_sync_daemon.exe',
+        'build/windows/x64/runner/Debug/bt_sync_daemon.exe',
+        'windows/bin/bt_sync_daemon.exe',
+        'windows/daemon/bt_sync_daemon.exe',
+        'lib/services/scripts/bt_sync_daemon.exe',
+      ];
+
+      String? validExe;
+      for (final p in candidateWindowsPaths) {
+        if (File(p).existsSync()) {
+          validExe = p;
+          break;
+        }
+      }
+
+      if (validExe != null) {
+        try {
+          Process.runSync('taskkill', ['/F', '/IM', 'bt_sync_daemon.exe']);
+        } catch (_) {}
+
+        try {
+          Process.start(validExe, []).then((process) {
+            _daemonProcess = process;
+            debugPrint('[PcSyncService] Started Native Windows Bluetooth Sync Daemon (PID ${process.pid}) from $validExe');
+
+            _stdoutSub = process.stdout
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())
+                .listen(_onDaemonLine, onError: (err) {
+                  debugPrint('[PcSyncService] Daemon stdout error: $err');
+                });
+
+            process.stderr
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())
+                .listen((line) {
+                  debugPrint('[Daemon STDERR] $line');
+                });
+
+            process.exitCode.then((code) {
+              debugPrint('[PcSyncService] Daemon exited with code $code');
+              _isConnected = false;
+              _daemonProcess = null;
+              notifyListeners();
+            });
+          }).catchError((e) {
+            debugPrint('[PcSyncService] Failed to spawn native Windows sync daemon: $e');
+          });
+          return;
+        } catch (e) {
+          debugPrint('[PcSyncService] Exception starting native Windows sync daemon: $e');
+        }
+      }
+    }
 
     final scriptPath =
         '${File(Platform.resolvedExecutable).parent.path}/../lib/services/scripts/bt_sync_daemon.py';
@@ -1282,7 +1343,11 @@ class PcSyncService extends ChangeNotifier {
     _stdoutSub = null;
     if (_daemonProcess != null) {
       try {
-        _daemonProcess?.kill(ProcessSignal.sigterm);
+        if (Platform.isWindows) {
+          _daemonProcess?.kill();
+        } else {
+          _daemonProcess?.kill(ProcessSignal.sigterm);
+        }
       } catch (_) {}
       _daemonProcess = null;
     }

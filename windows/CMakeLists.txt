@@ -52,6 +52,12 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# Bluetooth Sync & Audio Receiver Daemon for Windows (native RFCOMM & A2DP Sink)
+add_executable(bt_sync_daemon "daemon/bt_sync_daemon.cpp")
+target_compile_features(bt_sync_daemon PUBLIC cxx_std_17)
+target_compile_options(bt_sync_daemon PRIVATE /EHsc)
+target_link_libraries(bt_sync_daemon PRIVATE "windowsapp.lib" "ws2_32.lib" "bthprops.lib")
+
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
@@ -72,7 +78,7 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
-install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+install(TARGETS ${BINARY_NAME} bt_sync_daemon RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"

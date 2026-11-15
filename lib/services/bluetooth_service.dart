@@ -669,6 +669,8 @@ class BluetoothService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  bool _isWindowsQuerying = false;
+
   Future<void> _applyWindowsSpeakerHardware(bool enable) async {
     final computerName = Platform.environment['COMPUTERNAME'] ?? 'Windows PC';
     if (enable) {
@@ -688,8 +690,94 @@ class BluetoothService extends ChangeNotifier {
   }
 
   Future<void> _queryWindowsBluetoothState() async {
+    if (_isWindowsQuerying) return;
+    _isWindowsQuerying = true;
     try {
       final computerName = Platform.environment['COMPUTERNAME'] ?? 'Windows PC';
+
+      const psCmd = r'''
+$radio = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { ($_.InstanceId -like 'USB\*' -or $_.InstanceId -like 'PCI\*' -or $_.FriendlyName -like '*Adapter*' -or $_.FriendlyName -like '*Radio*') -and $_.Status -eq 'OK' }
+$powered = ($radio -ne $null)
+
+$dev = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -like 'BTHENUM\DEV_*' -and $_.InstanceId -like '*BLUETOOTHDEVICE_*' } | Select-Object -First 1
+
+$mac = ''
+$name = ''
+if ($dev) {
+    $m = [regex]::Match($dev.InstanceId, 'DEV_([0-9A-Fa-f]{12})')
+    if ($m.Success) {
+        $mac = ($m.Groups[1].Value -replace '(..)(?=.)', '$1:').ToUpper()
+    }
+    $name = $dev.FriendlyName
+}
+
+$sink = Get-PnpDevice -Class AudioEndpoint -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -like '*MMDEVAPI*{0.0.0.*' } | Select-Object -First 1 -ExpandProperty FriendlyName
+
+[PSCustomObject]@{
+    powered = $powered
+    alias = $env:COMPUTERNAME
+    connected = [bool]$dev
+    mac = $mac
+    name = $name
+    sink = if ($sink) { $sink } else { 'Default Speaker' }
+} | ConvertTo-Json -Compress
+''';
+
+      final result = await Process.run(
+        'powershell',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCmd],
+      );
+
+      if (result.exitCode == 0) {
+        final out = (result.stdout as String).trim();
+        if (out.isNotEmpty && out.startsWith('{')) {
+          final data = jsonDecode(out) as Map<String, dynamic>;
+          final bool powered = data['powered'] == true;
+          final bool connected = data['connected'] == true;
+          final String mac = data['mac']?.toString() ?? '';
+          final String name = data['name']?.toString() ?? '';
+          final String alias = (data['alias']?.toString()?.isNotEmpty == true)
+              ? data['alias'].toString()
+              : computerName;
+          final String sink = data['sink']?.toString() ?? 'Default Speaker';
+
+          BluetoothDevice? connectedDevice;
+          if (connected && mac.isNotEmpty) {
+            connectedDevice = BluetoothDevice(
+              mac: mac,
+              name: name.isNotEmpty ? name : 'Mobile Device',
+              connected: true,
+            );
+          }
+
+          final statusMsg = connectedDevice != null
+              ? 'Connected to ${connectedDevice.name}'
+              : (_state.speakerModeEnabled
+                  ? 'Discoverable: Phone can connect to $alias'
+                  : 'Ready');
+
+          _state = _state.copyWith(
+            powered: powered,
+            discoverable: _state.speakerModeEnabled,
+            pairable: _state.speakerModeEnabled,
+            alias: alias,
+            connectedDevice: connectedDevice,
+            clearConnectedDevice: connectedDevice == null,
+            statusMessage: statusMsg,
+            activeSinkName: sink,
+            activeSinkDescription: sink,
+            availableSinks: [
+              AudioSinkDevice(
+                name: sink,
+                description: sink,
+                isDefault: true,
+              ),
+            ],
+          );
+          return;
+        }
+      }
+
       _state = _state.copyWith(
         powered: true,
         discoverable: _state.speakerModeEnabled,
@@ -699,19 +787,23 @@ class BluetoothService extends ChangeNotifier {
             ? 'Discoverable: Phone can connect to $computerName'
             : 'Ready',
       );
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _isWindowsQuerying = false;
+    }
   }
 
   Future<void> _queryWindowsAudioState({bool querySinks = false}) async {
     try {
       if (querySinks && _state.availableSinks.isEmpty) {
+        final sink = _state.activeSinkName ?? 'Default Speaker';
         _state = _state.copyWith(
-          activeSinkName: 'Default Speaker',
-          activeSinkDescription: 'Windows System Default Speakers',
-          availableSinks: const [
+          activeSinkName: sink,
+          activeSinkDescription: _state.activeSinkDescription ?? 'Windows System Audio',
+          availableSinks: [
             AudioSinkDevice(
-              name: 'Default Speaker',
-              description: 'Windows System Default Speakers',
+              name: sink,
+              description: _state.activeSinkDescription ?? 'Windows System Audio',
               isDefault: true,
             ),
           ],

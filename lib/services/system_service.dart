@@ -260,6 +260,23 @@ X-GNOME-Autostart-enabled=true
 
   Future<String?> detectSystemPackage() async {
     try {
+      if (Platform.isWindows) {
+        final execDir = File(Platform.resolvedExecutable).parent.path;
+        final uninstaller = File('$execDir\\unins000.exe');
+        if (uninstaller.existsSync()) {
+          return 'Windows Installed Application ($execDir)';
+        }
+        final localAppData = Platform.environment['LOCALAPPDATA'] ?? '';
+        if (localAppData.isNotEmpty && File('$localAppData\\Programs\\Ever Dialer PC\\ever_dialer_pc.exe').existsSync()) {
+          return 'Windows Installed Application ($localAppData\\Programs\\Ever Dialer PC)';
+        }
+        final programFiles = Platform.environment['ProgramFiles'] ?? '';
+        if (programFiles.isNotEmpty && File('$programFiles\\Ever Dialer PC\\ever_dialer_pc.exe').existsSync()) {
+          return 'Windows Installed Application ($programFiles\\Ever Dialer PC)';
+        }
+        return 'Windows Desktop Application';
+      }
+
       if (!Platform.isLinux) return null;
       final home = Platform.environment['HOME'] ?? '';
 
@@ -305,6 +322,10 @@ X-GNOME-Autostart-enabled=true
 
   Future<bool> removeSystemPackage() async {
     try {
+      if (Platform.isWindows) {
+        await performUninstall(removeSysPackage: true);
+        return true;
+      }
       if (!Platform.isLinux) return false;
       final res = await Process.run('bash', [
         '-c',
@@ -338,6 +359,119 @@ fi
 
   Future<void> performUninstall({bool deleteSource = false, bool removeRpm = true, bool removeSysPackage = true}) async {
     try {
+      if (Platform.isWindows) {
+        final execDir = File(Platform.resolvedExecutable).parent.path;
+        final uninstallerExe = File('$execDir\\unins000.exe');
+
+        // 1. Terminate sync daemon & active processes
+        try {
+          await Process.run('taskkill', ['/F', '/IM', 'bt_sync_daemon.exe', '/T']);
+        } catch (e) {
+          debugPrint('[SystemService] Error killing daemon: $e');
+        }
+
+        // 2. Remove desktop shortcuts (Desktop & OneDrive Desktop)
+        try {
+          final userProfile = Platform.environment['USERPROFILE'] ?? '';
+          final desktopCandidates = [
+            '$userProfile\\Desktop\\Ever Dialer PC.lnk',
+            '$userProfile\\OneDrive\\Desktop\\Ever Dialer PC.lnk',
+          ];
+          for (final d in desktopCandidates) {
+            final f = File(d);
+            if (await f.exists()) await f.delete();
+          }
+        } catch (e) {
+          debugPrint('[SystemService] Error removing desktop shortcut: $e');
+        }
+
+        // 3. Remove Start Menu shortcuts
+        try {
+          final appData = Platform.environment['APPDATA'] ?? '';
+          final programData = Platform.environment['ProgramData'] ?? '';
+          final startMenuCandidates = [
+            '$appData\\Microsoft\\Windows\\Start Menu\\Programs\\Ever Dialer PC.lnk',
+            '$appData\\Microsoft\\Windows\\Start Menu\\Programs\\Ever Dialer PC',
+            '$programData\\Microsoft\\Windows\\Start Menu\\Programs\\Ever Dialer PC.lnk',
+            '$programData\\Microsoft\\Windows\\Start Menu\\Programs\\Ever Dialer PC',
+          ];
+          for (final s in startMenuCandidates) {
+            final f = File(s);
+            if (await f.exists()) await f.delete();
+            final d = Directory(s);
+            if (await d.exists()) await d.delete(recursive: true);
+          }
+        } catch (e) {
+          debugPrint('[SystemService] Error removing start menu shortcut: $e');
+        }
+
+        // 4. Remove Startup / autostart shortcut
+        try {
+          final appData = Platform.environment['APPDATA'] ?? '';
+          final startupLnk = File('$appData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\Ever Dialer PC.lnk');
+          if (await startupLnk.exists()) await startupLnk.delete();
+        } catch (e) {
+          debugPrint('[SystemService] Error removing startup shortcut: $e');
+        }
+
+        // 5. Remove local app cache, avatars, paired sync data, and preferences
+        try {
+          final userProfile = Platform.environment['USERPROFILE'] ?? '';
+          final localAppData = Platform.environment['LOCALAPPDATA'] ?? '';
+          final appData = Platform.environment['APPDATA'] ?? '';
+
+          final dirsToDelete = [
+            '$userProfile\\.cache\\everdialer',
+            '$localAppData\\Ever Dialer PC',
+            '$appData\\ever_dialer_pc',
+          ];
+          for (final p in dirsToDelete) {
+            final d = Directory(p);
+            if (await d.exists()) {
+              try {
+                await d.delete(recursive: true);
+              } catch (_) {}
+            }
+          }
+        } catch (e) {
+          debugPrint('[SystemService] Error cleaning cache: $e');
+        }
+
+        // 6. Launch unins000.exe or detached cleanup script to remove app binaries
+        if (await uninstallerExe.exists()) {
+          final uninsPath = uninstallerExe.path;
+          await Process.start(
+            'cmd.exe',
+            [
+              '/c',
+              'timeout /t 1 /nobreak >nul & start "" "$uninsPath" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART & timeout /t 2 /nobreak >nul & if exist "$execDir" rmdir /s /q "$execDir"'
+            ],
+            mode: ProcessStartMode.detached,
+          );
+        } else {
+          await Process.start(
+            'cmd.exe',
+            [
+              '/c',
+              'timeout /t 1 /nobreak >nul & if exist "$execDir" rmdir /s /q "$execDir"'
+            ],
+            mode: ProcessStartMode.detached,
+          );
+        }
+
+        // 7. Show native notification
+        try {
+          await Process.run('powershell', [
+            '-NoProfile',
+            '-Command',
+            r'[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; [System.Windows.Forms.MessageBox]::Show("Ever Dialer PC has been uninstalled successfully.", "Ever Dialer PC", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)'
+          ]);
+        } catch (_) {}
+
+        // 8. Clean exit
+        exit(0);
+      }
+
       if (!Platform.isLinux) return;
       final home = Platform.environment['HOME'] ?? '';
       if (home.isEmpty) return;
