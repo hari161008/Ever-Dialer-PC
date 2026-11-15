@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -744,7 +745,9 @@ class _EverDialerHomePageState extends State<EverDialerHomePage> {
                     // Footer Info
                     Center(
                       child: Text(
-                        'PipeWire A2DP Audio Sink • BlueZ 5 • Fedora Linux • v1.0.0',
+                        Platform.isWindows
+                            ? 'Windows Core Audio • Bluetooth Sync • Windows • v1.0.0'
+                            : 'PipeWire A2DP Audio Sink • BlueZ 5 • Fedora Linux • v1.0.0',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colorScheme.outline,
                         ),

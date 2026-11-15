@@ -832,6 +832,10 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       indicatorColor: colorScheme.primaryContainer,
                       selectedIndex: visibleIndices.indexOf(activeIndex).clamp(0, visibleIndices.isNotEmpty ? visibleIndices.length - 1 : 0),
                       onDestinationSelected: (vIdx) {
+                        if (vIdx == visibleIndices.length) {
+                          widget.onOpenSettings();
+                          return;
+                        }
                         if (vIdx >= 0 && vIdx < visibleIndices.length) {
                           _changeTab(visibleIndices[vIdx]);
                         }
@@ -867,6 +871,11 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                             selectedIcon: Icon(Icons.note_alt, color: colorScheme.onPrimaryContainer),
                             label: 'Notes',
                           ),
+                        NavigationDestination(
+                          icon: const Icon(Icons.settings_outlined),
+                          selectedIcon: Icon(Icons.settings, color: colorScheme.onPrimaryContainer),
+                          label: 'Settings',
+                        ),
                       ],
                     ),
                   ),
@@ -1303,15 +1312,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       widget.syncService.setFavoritesInList(!isListView);
                     },
                   ),
-                  if (_isMobileView) ...[
-                    const SizedBox(width: 4),
-                    IconButton(
-                      icon: const Icon(Icons.tune),
-                      tooltip: 'Settings',
-                      color: colorScheme.onSurfaceVariant,
-                      onPressed: widget.onOpenSettings,
-                    ),
-                  ],
                 ],
               ),
             ],
@@ -1771,12 +1771,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (_isMobileView)
-                    IconButton(
-                      icon: const Icon(Icons.settings_outlined),
-                      tooltip: 'Settings',
-                      onPressed: widget.onOpenSettings,
-                    ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -2275,12 +2269,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                   ],
                 ),
               ),
-              if (_isMobileView)
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined),
-                  tooltip: 'Settings',
-                  onPressed: widget.onOpenSettings,
-                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -3811,12 +3799,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                     });
                   },
                 ),
-                if (_isMobileView)
-                  IconButton(
-                    icon: const Icon(Icons.settings_outlined),
-                    tooltip: 'Settings',
-                    onPressed: widget.onOpenSettings,
-                  ),
               ],
             ),
             const SizedBox(height: 32),
@@ -4045,12 +4027,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                       });
                     },
                   ),
-                  if (_isMobileView)
-                    IconButton(
-                      icon: const Icon(Icons.settings_outlined),
-                      tooltip: 'Settings',
-                      onPressed: widget.onOpenSettings,
-                    ),
                 ],
               ),
             ),
@@ -4607,14 +4583,6 @@ class _MobileLandscapeLayoutState extends State<MobileLandscapeLayout> {
                 label: const Text('Add Note'),
                 onPressed: _showAddNoteDialog,
               ),
-              if (_isMobileView) ...[
-                const SizedBox(width: 4),
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined),
-                  tooltip: 'Settings',
-                  onPressed: widget.onOpenSettings,
-                ),
-              ],
             ],
           ),
           const SizedBox(height: 12),
