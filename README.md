@@ -40,7 +40,15 @@ flutter build linux
 app_release
 # (Or run directly from the repo: bash scripts/app_release.sh)
 # Packages are automatically placed into: ~/Downloads/Linux Release/
+
+# Build and package Windows 10 & 11 executable (.exe + ZIP):
+app_release_win
+# (Or run directly from the repo: scripts\app_release_win.bat)
+# Packages are automatically placed into: %USERPROFILE%\Downloads\Windows Release\
 ```
+
+For AI agents implementing Windows functionality without breaking Linux, see [README_WINDOWS_AI.md](file:///run/media/hari/Windows-SSD/Android/PC%20Apps/Ever%20Dialer%20For%20PC/README_WINDOWS_AI.md).
+
 
 ## 📂 Project Structure
 
