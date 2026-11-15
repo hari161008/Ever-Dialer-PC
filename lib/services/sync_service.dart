@@ -1149,11 +1149,14 @@ class PcSyncService extends ChangeNotifier {
     }
 
     try {
-      Process.runSync('pkill', ['-f', 'bt_sync_daemon.py']);
+      if (Platform.isLinux) {
+        Process.runSync('pkill', ['-f', 'bt_sync_daemon.py']);
+      }
     } catch (_) {}
 
     try {
-      Process.start('python3', [validScript]).then((process) {
+      final pythonCmd = Platform.isWindows ? 'python' : 'python3';
+      Process.start(pythonCmd, [validScript]).then((process) {
         _daemonProcess = process;
         debugPrint('[PcSyncService] Started Bluetooth Sync Daemon (PID ${process.pid})');
 

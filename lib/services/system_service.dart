@@ -198,18 +198,18 @@ class SystemService extends ChangeNotifier {
 
   Future<void> _applyAutostart(bool enabled) async {
     try {
-      if (!Platform.isLinux) return;
-      final home = Platform.environment['HOME'];
-      if (home == null || home.isEmpty) return;
-      final autostartDir = Directory('$home/.config/autostart');
-      final desktopFile = File('${autostartDir.path}/ever_dialer_pc.desktop');
+      if (Platform.isLinux) {
+        final home = Platform.environment['HOME'];
+        if (home == null || home.isEmpty) return;
+        final autostartDir = Directory('$home/.config/autostart');
+        final desktopFile = File('${autostartDir.path}/ever_dialer_pc.desktop');
 
-      if (enabled) {
-        if (!await autostartDir.exists()) {
-          await autostartDir.create(recursive: true);
-        }
-        final exePath = Platform.resolvedExecutable;
-        final content = '''[Desktop Entry]
+        if (enabled) {
+          if (!await autostartDir.exists()) {
+            await autostartDir.create(recursive: true);
+          }
+          final exePath = Platform.resolvedExecutable;
+          final content = '''[Desktop Entry]
 Type=Application
 Name=Ever Dialer PC
 Comment=Bluetooth Media Speaker Sink & Phone Companion
@@ -220,10 +220,26 @@ Categories=AudioVideo;Audio;Utility;
 StartupWMClass=ever_dialer_pc
 X-GNOME-Autostart-enabled=true
 ''';
-        await desktopFile.writeAsString(content);
-      } else {
-        if (await desktopFile.exists()) {
-          await desktopFile.delete();
+          await desktopFile.writeAsString(content);
+        } else {
+          if (await desktopFile.exists()) {
+            await desktopFile.delete();
+          }
+        }
+      } else if (Platform.isWindows) {
+        final appData = Platform.environment['APPDATA'];
+        if (appData != null && appData.isNotEmpty) {
+          final startupFolder = '$appData\\Microsoft\\Windows\\Start Menu\\Programs\\Startup';
+          final shortcutFile = File('$startupFolder\\Ever Dialer PC.lnk');
+          if (enabled) {
+            final exePath = Platform.resolvedExecutable;
+            final psScript = "\$WshShell = New-Object -ComObject WScript.Shell; \$Shortcut = \$WshShell.CreateShortcut('$startupFolder\\Ever Dialer PC.lnk'); \$Shortcut.TargetPath = '$exePath'; \$Shortcut.Arguments = '--hidden'; \$Shortcut.Save();";
+            await Process.run('powershell', ['-NoProfile', '-Command', psScript]);
+          } else {
+            if (await shortcutFile.exists()) {
+              await shortcutFile.delete();
+            }
+          }
         }
       }
     } catch (e) {

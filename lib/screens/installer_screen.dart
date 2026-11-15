@@ -198,6 +198,7 @@ class _InstallerScreenState extends State<InstallerScreen> with SingleTickerProv
   }
 
   Future<void> _checkExistingInstall() async {
+    if (Platform.isWindows) return;
     final home = Platform.environment['HOME'] ?? '';
     final detected = await _systemService.detectSystemPackage();
 

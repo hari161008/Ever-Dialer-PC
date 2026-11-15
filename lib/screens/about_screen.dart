@@ -8,7 +8,11 @@ import '../widgets/window_header_actions.dart';
 
 Future<void> _launchUrl(String url) async {
   try {
-    await Process.run('xdg-open', [url]);
+    if (Platform.isWindows) {
+      await Process.run('cmd', ['/c', 'start', '', url]);
+    } else {
+      await Process.run('xdg-open', [url]);
+    }
   } catch (e) {
     debugPrint('Failed to open url: $url, error: $e');
   }

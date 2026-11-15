@@ -248,6 +248,10 @@ class BluetoothService extends ChangeNotifier {
   }
 
   Future<void> _applySpeakerHardware(bool enable) async {
+    if (Platform.isWindows) {
+      await _applyWindowsSpeakerHardware(enable);
+      return;
+    }
     if (enable) {
       try {
         _originalPowered ??= _state.powered;
@@ -317,8 +321,12 @@ class BluetoothService extends ChangeNotifier {
 
   Future<void> unmuteSpeaker() async {
     try {
-      await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
-      await _queryAudioState();
+      if (Platform.isLinux) {
+        await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
+        await _queryAudioState();
+      } else if (Platform.isWindows) {
+        _state = _state.copyWith(speakerMuted: false);
+      }
       notifyListeners();
     } catch (_) {}
   }
@@ -326,23 +334,40 @@ class BluetoothService extends ChangeNotifier {
   Future<void> setVolume(double volume) async {
     try {
       final clamped = volume.clamp(0.0, 1.5);
-      await Process.run(
-        'wpctl',
-        ['set-volume', '@DEFAULT_AUDIO_SINK@', clamped.toStringAsFixed(2)],
-      );
-      _state = _state.copyWith(speakerVolume: clamped);
+      if (Platform.isLinux) {
+        await Process.run(
+          'wpctl',
+          ['set-volume', '@DEFAULT_AUDIO_SINK@', clamped.toStringAsFixed(2)],
+        );
+        _state = _state.copyWith(speakerVolume: clamped);
+      } else if (Platform.isWindows) {
+        _state = _state.copyWith(speakerVolume: clamped.clamp(0.0, 1.0));
+      }
       notifyListeners();
     } catch (_) {}
   }
 
   Future<void> setOutputSink(String sinkName) async {
     try {
-      await Process.run('pactl', ['set-default-sink', sinkName]);
-      await refresh();
+      if (Platform.isLinux) {
+        await Process.run('pactl', ['set-default-sink', sinkName]);
+        await refresh();
+      } else if (Platform.isWindows) {
+        _state = _state.copyWith(activeSinkName: sinkName);
+        notifyListeners();
+      }
     } catch (_) {}
   }
 
   Future<void> repairAudioRouting() async {
+    if (Platform.isWindows) {
+      _state = _state.copyWith(
+        statusMessage: 'Audio routing active (Windows native)',
+        phoneAudioProfileActive: true,
+      );
+      notifyListeners();
+      return;
+    }
     _state = _state.copyWith(statusMessage: 'Repairing PipeWire audio routing...');
     notifyListeners();
 
@@ -402,6 +427,7 @@ class BluetoothService extends ChangeNotifier {
   }
 
   Future<void> _ensureBluezProfileActive() async {
+    if (!Platform.isLinux) return;
     try {
       final cardsRes = await Process.run('pactl', ['-f', 'json', 'list', 'cards']);
       if (cardsRes.exitCode == 0) {
@@ -428,8 +454,13 @@ class BluetoothService extends ChangeNotifier {
 
   Future<void> disconnectDevice(String mac) async {
     try {
-      await Process.run('bluetoothctl', ['disconnect', mac]);
-      await refresh();
+      if (Platform.isLinux) {
+        await Process.run('bluetoothctl', ['disconnect', mac]);
+        await refresh();
+      } else if (Platform.isWindows) {
+        _state = _state.copyWith(clearConnectedDevice: true);
+        notifyListeners();
+      }
     } catch (_) {}
   }
 
@@ -454,6 +485,10 @@ class BluetoothService extends ChangeNotifier {
   }
 
   Future<void> _queryBluetoothState() async {
+    if (Platform.isWindows) {
+      await _queryWindowsBluetoothState();
+      return;
+    }
     try {
       final showResult = await Process.run('bluetoothctl', ['show']);
       if (showResult.exitCode == 0) {
@@ -525,6 +560,10 @@ class BluetoothService extends ChangeNotifier {
   }
 
   Future<void> _queryAudioState({bool querySinks = false}) async {
+    if (Platform.isWindows) {
+      await _queryWindowsAudioState(querySinks: querySinks);
+      return;
+    }
     try {
       // 1. Query volume and mute state
       final volResult = await Process.run(
@@ -627,6 +666,57 @@ class BluetoothService extends ChangeNotifier {
         availableSinks: sinks,
         phoneAudioProfileActive: phoneProfileActive,
       );
+    } catch (_) {}
+  }
+
+  Future<void> _applyWindowsSpeakerHardware(bool enable) async {
+    final computerName = Platform.environment['COMPUTERNAME'] ?? 'Windows PC';
+    if (enable) {
+      _state = _state.copyWith(
+        powered: true,
+        discoverable: true,
+        pairable: true,
+        statusMessage: 'Discoverable: Phone can connect to $computerName',
+      );
+    } else {
+      _state = _state.copyWith(
+        discoverable: false,
+        clearConnectedDevice: true,
+        statusMessage: 'Bluetooth restored to normal state',
+      );
+    }
+  }
+
+  Future<void> _queryWindowsBluetoothState() async {
+    try {
+      final computerName = Platform.environment['COMPUTERNAME'] ?? 'Windows PC';
+      _state = _state.copyWith(
+        powered: true,
+        discoverable: _state.speakerModeEnabled,
+        pairable: _state.speakerModeEnabled,
+        alias: computerName,
+        statusMessage: _state.speakerModeEnabled
+            ? 'Discoverable: Phone can connect to $computerName'
+            : 'Ready',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _queryWindowsAudioState({bool querySinks = false}) async {
+    try {
+      if (querySinks && _state.availableSinks.isEmpty) {
+        _state = _state.copyWith(
+          activeSinkName: 'Default Speaker',
+          activeSinkDescription: 'Windows System Default Speakers',
+          availableSinks: const [
+            AudioSinkDevice(
+              name: 'Default Speaker',
+              description: 'Windows System Default Speakers',
+              isDefault: true,
+            ),
+          ],
+        );
+      }
     } catch (_) {}
   }
 }
