@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/bluetooth_service.dart';
 
@@ -72,9 +73,11 @@ class AudioStatusCard extends StatelessWidget {
                       ),
                       Text(
                         isMuted
-                            ? 'Muted in PipeWire'
+                            ? (Platform.isWindows ? 'Muted' : 'Muted in PipeWire')
                             : (hasProfileIssue
-                                ? 'Phone Stream Disabled in PipeWire'
+                                ? (Platform.isWindows
+                                    ? 'Phone Stream Disabled'
+                                    : 'Phone Stream Disabled in PipeWire')
                                 : currentSinkDesc),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: (isMuted || hasProfileIssue)
@@ -251,7 +254,9 @@ class AudioStatusCard extends StatelessWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Phone audio routing is currently OFF in PipeWire. Click "Fix PipeWire Audio" below to restore wireless streaming.',
+                        Platform.isWindows
+                            ? 'Phone audio stream is currently inactive. Click "Fix Audio Routing" below to restore wireless streaming.'
+                            : 'Phone audio routing is currently OFF in PipeWire. Click "Fix PipeWire Audio" below to restore wireless streaming.',
                         style: TextStyle(
                           fontSize: 12,
                           color: colorScheme.error,
@@ -300,16 +305,19 @@ class AudioStatusCard extends StatelessWidget {
                 onPressed: () {
                   onRepairAudio!();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
+                    SnackBar(
                       content: Text(
-                          'Repairing PipeWire audio routing & unmuting speakers...'),
-                      duration: Duration(seconds: 2),
+                        Platform.isWindows
+                            ? 'Refreshing audio routing & unmuting speakers...'
+                            : 'Repairing PipeWire audio routing & unmuting speakers...',
+                      ),
+                      duration: const Duration(seconds: 2),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
                 },
                 icon: const Icon(Icons.build_circle_outlined, size: 18),
-                label: const Text('Fix PipeWire Audio Routing'),
+                label: Text(Platform.isWindows ? 'Fix Audio Routing' : 'Fix PipeWire Audio Routing'),
                 style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   shape: RoundedRectangleBorder(

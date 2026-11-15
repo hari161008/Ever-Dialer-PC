@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/bluetooth_service.dart';
 import '../services/sync_service.dart';
@@ -203,7 +204,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 : null,
             child: RivoListItem(
               headline: 'System & Audio',
-              supporting: 'Autostart, Exit on Close, system tray, and PipeWire audio routing',
+              supporting: Platform.isWindows
+                  ? 'Autostart, Exit on Close, system tray, and Windows audio output'
+                  : 'Autostart, Exit on Close, system tray, and PipeWire audio routing',
               leadingIcon: Icons.settings_suggest_outlined,
               iconColor: const Color(0xFFFF9800),
               onClick: () {

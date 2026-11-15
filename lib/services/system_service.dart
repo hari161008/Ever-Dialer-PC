@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class SystemService extends ChangeNotifier {
   static const MethodChannel _channel = MethodChannel('com.everdialer.ever_dialer_pc/system');
+  static MethodChannel get channel => _channel;
 
   final SharedPreferences? prefs;
   bool _autostartEnabled = true;
@@ -19,7 +20,7 @@ class SystemService extends ChangeNotifier {
 
   Future<void> minimizeWindow() async {
     try {
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         await _channel.invokeMethod('minimizeWindow');
       }
     } catch (e) {
@@ -29,7 +30,7 @@ class SystemService extends ChangeNotifier {
 
   Future<void> toggleMaximizeWindow() async {
     try {
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         final res = await _channel.invokeMethod<bool>('toggleMaximizeWindow');
         _isMaximized = res ?? !_isMaximized;
         notifyListeners();
@@ -41,7 +42,7 @@ class SystemService extends ChangeNotifier {
 
   Future<void> closeWindow() async {
     try {
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         await _channel.invokeMethod('closeWindow');
       }
       if (_exitOnClose) {
@@ -62,7 +63,7 @@ class SystemService extends ChangeNotifier {
     if (now - _lastDragCallTime < 150) return;
     _lastDragCallTime = now;
     try {
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         await _channel.invokeMethod('startDrag');
       }
     } catch (e) {
@@ -77,7 +78,7 @@ class SystemService extends ChangeNotifier {
     if (now - _lastResizeCallTime < 100) return;
     _lastResizeCallTime = now;
     try {
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         await _channel.invokeMethod('startResize', {'edge': edge});
       }
     } catch (e) {
@@ -87,7 +88,7 @@ class SystemService extends ChangeNotifier {
 
   static Future<void> startResize(String edge) async {
     try {
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         await _channel.invokeMethod('startResize', {'edge': edge});
       }
     } catch (e) {
@@ -103,7 +104,18 @@ class SystemService extends ChangeNotifier {
 
   SystemService({this.prefs}) {
     _loadSettings();
+    _channel.setMethodCallHandler(_handleNativeMethodCall);
     refreshPcVolume();
+  }
+
+  Future<dynamic> _handleNativeMethodCall(MethodCall call) async {
+    if (call.method == 'onMaximizedChanged') {
+      final isMax = call.arguments as bool? ?? false;
+      if (_isMaximized != isMax) {
+        _isMaximized = isMax;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> refreshPcVolume() async {
@@ -126,6 +138,20 @@ class SystemService extends ChangeNotifier {
         if (_pcVolume != oldVol || _pcMuted != oldMuted) {
           notifyListeners();
         }
+      } else if (Platform.isWindows) {
+        final oldVol = _pcVolume;
+        final oldMuted = _pcMuted;
+
+        final res = await _channel.invokeMethod<Map>('getPcVolume');
+        if (res != null) {
+          final vol = res['volume'] as int?;
+          final muted = res['muted'] as bool?;
+          if (vol != null) _pcVolume = vol;
+          if (muted != null) _pcMuted = muted;
+          if (_pcVolume != oldVol || _pcMuted != oldMuted) {
+            notifyListeners();
+          }
+        }
       }
     } catch (e) {
       debugPrint('[SystemService] Error refreshing PC volume: $e');
@@ -138,6 +164,8 @@ class SystemService extends ChangeNotifier {
     try {
       if (Platform.isLinux) {
         await Process.run('pactl', ['set-sink-volume', '@DEFAULT_SINK@', '$_pcVolume%']);
+      } else if (Platform.isWindows) {
+        await _channel.invokeMethod('setPcVolume', {'volume': _pcVolume});
       }
     } catch (e) {
       debugPrint('[SystemService] Error setting PC volume: $e');
@@ -150,6 +178,8 @@ class SystemService extends ChangeNotifier {
     try {
       if (Platform.isLinux) {
         await Process.run('pactl', ['set-sink-mute', '@DEFAULT_SINK@', _pcMuted ? '1' : '0']);
+      } else if (Platform.isWindows) {
+        await _channel.invokeMethod('setPcMute', {'muted': _pcMuted});
       }
     } catch (e) {
       debugPrint('[SystemService] Error toggling PC mute: $e');
@@ -188,7 +218,7 @@ class SystemService extends ChangeNotifier {
 
   Future<void> _applyExitOnClose(bool enabled) async {
     try {
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         await _channel.invokeMethod('setExitOnClose', {'enabled': enabled});
       }
     } catch (e) {
@@ -249,7 +279,7 @@ X-GNOME-Autostart-enabled=true
 
   Future<void> _applySystemTray(bool enabled) async {
     try {
-      if (Platform.isLinux) {
+      if (Platform.isLinux || Platform.isWindows) {
         await _channel.invokeMethod('setSystemTray', {'enabled': enabled});
       }
     } catch (e) {

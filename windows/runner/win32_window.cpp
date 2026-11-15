@@ -2,6 +2,7 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <windowsx.h>
 
 #include "resource.h"
 
@@ -138,15 +139,39 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  int scaled_width = Scale(size.width, scale_factor);
+  int scaled_height = Scale(size.height, scale_factor);
+  int window_x = Scale(origin.x, scale_factor);
+  int window_y = Scale(origin.y, scale_factor);
+
+  // If default top-left origin is provided, center the window on active monitor
+  if (origin.x == 10 && origin.y == 10) {
+    MONITORINFO mi = { sizeof(MONITORINFO) };
+    if (GetMonitorInfo(monitor, &mi)) {
+      int workWidth = mi.rcWork.right - mi.rcWork.left;
+      int workHeight = mi.rcWork.bottom - mi.rcWork.top;
+      window_x = mi.rcWork.left + (workWidth - scaled_width) / 2;
+      window_y = mi.rcWork.top + (workHeight - scaled_height) / 2;
+    }
+  }
+
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      window_x, window_y,
+      scaled_width, scaled_height,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
     return false;
   }
+
+  // Extend frame into client area by 1 pixel to enable DWM drop shadow & rounded corners
+  MARGINS margins = { 0, 0, 0, 1 };
+  DwmExtendFrameIntoClientArea(window, &margins);
+
+  // Recalculate client area to completely remove the default Windows title bar
+  SetWindowPos(window, nullptr, 0, 0, 0, 0,
+               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
 
   HICON hIconBig = (HICON)LoadImage(
       GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON,
@@ -196,6 +221,47 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_NCCALCSIZE: {
+      if (wparam == TRUE) {
+        if (IsZoomed(hwnd)) {
+          NCCALCSIZE_PARAMS* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+          HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+          MONITORINFO mi = { sizeof(MONITORINFO) };
+          if (GetMonitorInfo(hMonitor, &mi)) {
+            params->rgrc[0] = mi.rcWork;
+          }
+        }
+        return 0;
+      }
+      return 0;
+    }
+
+    case WM_NCHITTEST: {
+      if (IsZoomed(hwnd)) {
+        return HTCLIENT;
+      }
+      POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+      RECT rect;
+      GetWindowRect(hwnd, &rect);
+
+      const int borderWidth = 6;
+      bool isLeft = (pt.x >= rect.left && pt.x < rect.left + borderWidth);
+      bool isRight = (pt.x < rect.right && pt.x >= rect.right - borderWidth);
+      bool isTop = (pt.y >= rect.top && pt.y < rect.top + borderWidth);
+      bool isBottom = (pt.y < rect.bottom && pt.y >= rect.bottom - borderWidth);
+
+      if (isTop && isLeft) return HTTOPLEFT;
+      if (isTop && isRight) return HTTOPRIGHT;
+      if (isBottom && isLeft) return HTBOTTOMLEFT;
+      if (isBottom && isRight) return HTBOTTOMRIGHT;
+      if (isLeft) return HTLEFT;
+      if (isRight) return HTRIGHT;
+      if (isTop) return HTTOP;
+      if (isBottom) return HTBOTTOM;
+
+      return HTCLIENT;
+    }
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -278,6 +344,14 @@ HWND Win32Window::GetHandle() {
 
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
+}
+
+void Win32Window::SetStartHidden(bool start_hidden) {
+  start_hidden_ = start_hidden;
+}
+
+bool Win32Window::IsStartHidden() const {
+  return start_hidden_;
 }
 
 bool Win32Window::OnCreate() {

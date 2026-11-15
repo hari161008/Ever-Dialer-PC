@@ -29,26 +29,17 @@ A native Linux desktop application built with **Flutter & Dart** for Fedora, fea
 
 ### Via Terminal
 ```bash
-# Run on Linux desktop
-flutter run -d linux
-
-# Or build release
-flutter build linux
-./build/linux/x64/release/bundle/ever_dialer_pc
 
 # Package for all Linux distributions (AppImage, DEB, RPM, Arch, Tarball)
 app_release
 # (Or run directly from the repo: bash scripts/app_release.sh)
 # Packages are automatically placed into: ~/Downloads/Linux Release/
 
-# Build and package Windows 10 & 11 executable (.exe + ZIP):
+# Build and package Windows 10 & 11 executable (.exe):
 app_release_win
 # (Or run directly from the repo: scripts\app_release_win.bat)
 # Packages are automatically placed into: %USERPROFILE%\Downloads\Windows Release\
 ```
-
-For AI agents implementing Windows functionality without breaking Linux, see [README_WINDOWS_AI.md](file:///run/media/hari/Windows-SSD/Android/PC%20Apps/Ever%20Dialer%20For%20PC/README_WINDOWS_AI.md).
-
 
 ## 📂 Project Structure
 

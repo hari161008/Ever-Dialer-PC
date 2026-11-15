@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'system_service.dart';
 
 class AudioSinkDevice {
   final String name;
@@ -325,7 +326,9 @@ class BluetoothService extends ChangeNotifier {
         await Process.run('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
         await _queryAudioState();
       } else if (Platform.isWindows) {
+        await SystemService.channel.invokeMethod('setPcMute', {'muted': false});
         _state = _state.copyWith(speakerMuted: false);
+        await _queryAudioState();
       }
       notifyListeners();
     } catch (_) {}
@@ -341,6 +344,8 @@ class BluetoothService extends ChangeNotifier {
         );
         _state = _state.copyWith(speakerVolume: clamped);
       } else if (Platform.isWindows) {
+        final volPercent = (clamped.clamp(0.0, 1.0) * 100).round();
+        await SystemService.channel.invokeMethod('setPcVolume', {'volume': volPercent});
         _state = _state.copyWith(speakerVolume: clamped.clamp(0.0, 1.0));
       }
       notifyListeners();
@@ -361,6 +366,8 @@ class BluetoothService extends ChangeNotifier {
 
   Future<void> repairAudioRouting() async {
     if (Platform.isWindows) {
+      await unmuteSpeaker();
+      await _queryWindowsAudioState(querySinks: true);
       _state = _state.copyWith(
         statusMessage: 'Audio routing active (Windows native)',
         phoneAudioProfileActive: true,
@@ -736,7 +743,7 @@ $sink = Get-PnpDevice -Class AudioEndpoint -ErrorAction SilentlyContinue | Where
           final bool connected = data['connected'] == true;
           final String mac = data['mac']?.toString() ?? '';
           final String name = data['name']?.toString() ?? '';
-          final String alias = (data['alias']?.toString()?.isNotEmpty == true)
+          final String alias = (data['alias']?.toString().isNotEmpty == true)
               ? data['alias'].toString()
               : computerName;
           final String sink = data['sink']?.toString() ?? 'Default Speaker';
@@ -795,20 +802,64 @@ $sink = Get-PnpDevice -Class AudioEndpoint -ErrorAction SilentlyContinue | Where
 
   Future<void> _queryWindowsAudioState({bool querySinks = false}) async {
     try {
-      if (querySinks && _state.availableSinks.isEmpty) {
-        final sink = _state.activeSinkName ?? 'Default Speaker';
-        _state = _state.copyWith(
-          activeSinkName: sink,
-          activeSinkDescription: _state.activeSinkDescription ?? 'Windows System Audio',
-          availableSinks: [
-            AudioSinkDevice(
-              name: sink,
-              description: _state.activeSinkDescription ?? 'Windows System Audio',
-              isDefault: true,
-            ),
-          ],
-        );
+      final volRes = await SystemService.channel.invokeMethod<Map>('getPcVolume');
+      int volInt = (_state.speakerVolume * 100).round();
+      bool isMuted = _state.speakerMuted;
+      if (volRes != null) {
+        volInt = (volRes['volume'] as int?) ?? volInt;
+        isMuted = (volRes['muted'] as bool?) ?? isMuted;
       }
-    } catch (_) {}
+
+      List<AudioSinkDevice> sinks = _state.availableSinks;
+      String? defaultSinkName = _state.activeSinkName;
+      String? activeSinkDescription = _state.activeSinkDescription;
+
+      if (querySinks || sinks.isEmpty) {
+        final sinksRes = await SystemService.channel.invokeListMethod<Map>('getAudioSinks');
+        if (sinksRes != null && sinksRes.isNotEmpty) {
+          final List<AudioSinkDevice> queriedSinks = [];
+          for (final s in sinksRes) {
+            final name = (s['name'] as String?) ?? '';
+            final desc = (s['description'] as String?) ?? name;
+            final isDef = (s['isDefault'] as bool?) ?? false;
+            if (isDef) {
+              defaultSinkName = name;
+              activeSinkDescription = desc;
+            }
+            queriedSinks.add(AudioSinkDevice(
+              name: name,
+              description: desc,
+              isDefault: isDef,
+            ));
+          }
+          if (queriedSinks.isNotEmpty) {
+            sinks = queriedSinks;
+            if (defaultSinkName == null) {
+              defaultSinkName = sinks.first.name;
+              activeSinkDescription = sinks.first.description;
+            }
+          }
+        }
+      }
+
+      _state = _state.copyWith(
+        speakerMuted: isMuted,
+        speakerVolume: (volInt / 100.0).clamp(0.0, 1.0),
+        activeSinkName: defaultSinkName ?? 'Default Speaker',
+        activeSinkDescription: activeSinkDescription ?? 'Windows System Audio',
+        availableSinks: sinks.isNotEmpty
+            ? sinks
+            : [
+                AudioSinkDevice(
+                  name: defaultSinkName ?? 'Default Speaker',
+                  description: activeSinkDescription ?? 'Windows System Audio',
+                  isDefault: true,
+                ),
+              ],
+        phoneAudioProfileActive: true,
+      );
+    } catch (e) {
+      debugPrint('[BluetoothService] Error querying Windows audio state: $e');
+    }
   }
 }
