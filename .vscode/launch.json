@@ -2,31 +2,37 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Ever Dialer PC",
+            "name": "Ever Dialer PC (Linux Debug)",
             "request": "launch",
             "type": "dart",
+            "deviceId": "linux",
+            "flutterMode": "debug",
             "program": "lib/main.dart"
         },
         {
-            "name": "Ever Dialer PC (Release)",
+            "name": "Ever Dialer PC (Linux Release)",
             "request": "launch",
             "type": "dart",
+            "deviceId": "linux",
             "flutterMode": "release",
             "noDebug": true,
             "program": "lib/main.dart"
         },
         {
-            "name": "Ever Dialer PC (Linux)",
-            "request": "launch",
-            "type": "dart",
-            "deviceId": "linux",
-            "program": "lib/main.dart"
-        },
-        {
-            "name": "Ever Dialer PC (Windows)",
+            "name": "Ever Dialer PC (Windows Debug)",
             "request": "launch",
             "type": "dart",
             "deviceId": "windows",
+            "flutterMode": "debug",
+            "program": "lib/main.dart"
+        },
+        {
+            "name": "Ever Dialer PC (Windows Release)",
+            "request": "launch",
+            "type": "dart",
+            "deviceId": "windows",
+            "flutterMode": "release",
+            "noDebug": true,
             "program": "lib/main.dart"
         }
     ]

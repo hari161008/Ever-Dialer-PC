@@ -12,9 +12,23 @@
       "problemMatcher": ["$dart-build"]
     },
     {
-      "label": "Flutter: Build Release",
+      "label": "Flutter: Build Linux Release",
       "type": "shell",
       "command": "flutter build linux",
+      "group": "build",
+      "problemMatcher": ["$dart-build"]
+    },
+    {
+      "label": "Flutter: Run Windows Desktop",
+      "type": "shell",
+      "command": "flutter run -d windows",
+      "group": "build",
+      "problemMatcher": ["$dart-build"]
+    },
+    {
+      "label": "Flutter: Build Windows Release",
+      "type": "shell",
+      "command": "flutter build windows",
       "group": "build",
       "problemMatcher": ["$dart-build"]
     },

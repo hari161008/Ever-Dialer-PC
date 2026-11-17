@@ -201,8 +201,83 @@ def start_bluez_profile():
             def Release(self):
                 log("BlueZ Profile Release")
 
+        class Agent(dbus.service.Object):
+            @dbus.service.method('org.bluez.Agent1', in_signature='', out_signature='')
+            def Release(self):
+                log("BlueZ Agent Release")
+
+            @dbus.service.method('org.bluez.Agent1', in_signature='os', out_signature='')
+            def AuthorizeService(self, device, uuid):
+                log(f"BlueZ Agent AuthorizeService for {device} (UUID: {uuid}) -> Auto-authorizing")
+                try:
+                    dev_obj = bus.get_object('org.bluez', device)
+                    dev_props = dbus.Interface(dev_obj, 'org.freedesktop.DBus.Properties')
+                    dev_props.Set('org.bluez.Device1', 'Trusted', dbus.Boolean(True))
+                except Exception as e:
+                    log(f"Error trusting device on AuthorizeService: {e}")
+                return
+
+            @dbus.service.method('org.bluez.Agent1', in_signature='o', out_signature='s')
+            def RequestPinCode(self, device):
+                log(f"BlueZ Agent RequestPinCode for {device}")
+                try:
+                    dev_obj = bus.get_object('org.bluez', device)
+                    dev_props = dbus.Interface(dev_obj, 'org.freedesktop.DBus.Properties')
+                    dev_props.Set('org.bluez.Device1', 'Trusted', dbus.Boolean(True))
+                except Exception:
+                    pass
+                return "0000"
+
+            @dbus.service.method('org.bluez.Agent1', in_signature='o', out_signature='u')
+            def RequestPasskey(self, device):
+                log(f"BlueZ Agent RequestPasskey for {device}")
+                try:
+                    dev_obj = bus.get_object('org.bluez', device)
+                    dev_props = dbus.Interface(dev_obj, 'org.freedesktop.DBus.Properties')
+                    dev_props.Set('org.bluez.Device1', 'Trusted', dbus.Boolean(True))
+                except Exception:
+                    pass
+                return dbus.UInt32(0)
+
+            @dbus.service.method('org.bluez.Agent1', in_signature='ouq', out_signature='')
+            def DisplayPasskey(self, device, passkey, entered):
+                pass
+
+            @dbus.service.method('org.bluez.Agent1', in_signature='os', out_signature='')
+            def DisplayPinCode(self, device, pincode):
+                pass
+
+            @dbus.service.method('org.bluez.Agent1', in_signature='ou', out_signature='')
+            def RequestConfirmation(self, device, passkey):
+                log(f"BlueZ Agent RequestConfirmation for {device}, passkey {passkey} -> Auto-confirming")
+                try:
+                    dev_obj = bus.get_object('org.bluez', device)
+                    dev_props = dbus.Interface(dev_obj, 'org.freedesktop.DBus.Properties')
+                    dev_props.Set('org.bluez.Device1', 'Trusted', dbus.Boolean(True))
+                except Exception as e:
+                    log(f"Error trusting device on RequestConfirmation: {e}")
+                return
+
+            @dbus.service.method('org.bluez.Agent1', in_signature='o', out_signature='')
+            def RequestAuthorization(self, device):
+                log(f"BlueZ Agent RequestAuthorization for {device} -> Auto-authorizing")
+                try:
+                    dev_obj = bus.get_object('org.bluez', device)
+                    dev_props = dbus.Interface(dev_obj, 'org.freedesktop.DBus.Properties')
+                    dev_props.Set('org.bluez.Device1', 'Trusted', dbus.Boolean(True))
+                except Exception as e:
+                    log(f"Error trusting device on RequestAuthorization: {e}")
+                return
+
+            @dbus.service.method('org.bluez.Agent1', in_signature='', out_signature='')
+            def Cancel(self):
+                log("BlueZ Agent Cancel")
+
         profile_obj = Profile(bus, '/everdialer/sync_profile')
+        agent_obj = Agent(bus, '/everdialer/agent')
+
         manager = dbus.Interface(bus.get_object('org.bluez', '/org/bluez'), 'org.bluez.ProfileManager1')
+        agent_manager = dbus.Interface(bus.get_object('org.bluez', '/org/bluez'), 'org.bluez.AgentManager1')
 
         opts = {
             'Channel': dbus.UInt16(RFCOMM_CHANNEL),
@@ -215,12 +290,19 @@ def start_bluez_profile():
         manager.RegisterProfile('/everdialer/sync_profile', EVER_DIALER_UUID, opts)
         log(f"Registered BlueZ Profile1 object for UUID {EVER_DIALER_UUID}")
 
+        try:
+            agent_manager.RegisterAgent('/everdialer/agent', 'NoInputNoOutput')
+            agent_manager.RequestDefaultAgent('/everdialer/agent')
+            log("Registered BlueZ Agent1 with NoInputNoOutput capability")
+        except Exception as agent_err:
+            log(f"Note: Agent registration: {agent_err}")
+
         glib_loop = GLib.MainLoop()
         t = threading.Thread(target=glib_loop.run, daemon=True)
         t.start()
-        return manager
+        return (manager, agent_manager)
     except Exception as e:
-        log(f"Warning: could not register BlueZ DBus profile: {e}")
+        log(f"Warning: could not register BlueZ DBus profile/agent: {e}")
         return None
 
 def rfcomm_server_thread():
@@ -311,7 +393,9 @@ def main():
 
     emit_event("status", connected=False, state="starting")
 
-    profile_manager = start_bluez_profile()
+    bluez_managers = start_bluez_profile()
+    profile_manager = bluez_managers[0] if bluez_managers else None
+    agent_manager = bluez_managers[1] if bluez_managers else None
 
     # If BlueZ profile registered, BlueZ handles channel 4. Only fallback to raw socket if BlueZ unavailable.
     if profile_manager is None:
@@ -331,6 +415,11 @@ def main():
     if profile_manager:
         try:
             profile_manager.UnregisterProfile('/everdialer/sync_profile')
+        except Exception:
+            pass
+    if agent_manager:
+        try:
+            agent_manager.UnregisterAgent('/everdialer/agent')
         except Exception:
             pass
 

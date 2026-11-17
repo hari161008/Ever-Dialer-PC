@@ -300,61 +300,96 @@ class BluetoothService extends ChangeNotifier {
         // 2. Power on bluetooth
         await _safeRun('bluetoothctl', ['power', 'on']);
 
-        // 3. Set DiscoverableTimeout to 0 via D-Bus (bypasses broken discoverable-timeout CLI)
-        await _safeRun('gdbus', [
-          'call',
-          '--system',
-          '--dest',
-          'org.bluez',
-          '--object-path',
-          '/org/bluez/hci0',
-          '--method',
-          'org.freedesktop.DBus.Properties.Set',
-          'org.bluez.Adapter1',
-          'DiscoverableTimeout',
-          '<uint32 0>',
-        ]);
-
-        // 4. Make discoverable & pairable
+        // 3. Register BlueZ agent and make pairable & discoverable
+        await _safeRun('bluetoothctl', ['agent', 'NoInputNoOutput']);
+        await _safeRun('bluetoothctl', ['default-agent']);
         await _safeRun('bluetoothctl', ['pairable', 'on']);
         await _safeRun('bluetoothctl', ['discoverable', 'on']);
 
-        // Resilient D-Bus backup to ensure adapter is broadcasting
-        await _safeRun('gdbus', [
-          'call',
-          '--system',
-          '--dest',
-          'org.bluez',
-          '--object-path',
-          '/org/bluez/hci0',
-          '--method',
-          'org.freedesktop.DBus.Properties.Set',
-          'org.bluez.Adapter1',
-          'Discoverable',
-          '<true>',
-        ]);
-        await _safeRun('gdbus', [
-          'call',
-          '--system',
-          '--dest',
-          'org.bluez',
-          '--object-path',
-          '/org/bluez/hci0',
-          '--method',
-          'org.freedesktop.DBus.Properties.Set',
-          'org.bluez.Adapter1',
-          'Pairable',
-          '<true>',
-        ]);
+        // 4. Set DiscoverableTimeout to 0 via D-Bus (bypasses broken discoverable-timeout CLI)
+        final adapterPaths = ['/org/bluez/hci0', '/org/bluez/hci1'];
+        for (final adapterPath in adapterPaths) {
+          await _safeRun('gdbus', [
+            'call',
+            '--system',
+            '--dest',
+            'org.bluez',
+            '--object-path',
+            adapterPath,
+            '--method',
+            'org.freedesktop.DBus.Properties.Set',
+            'org.bluez.Adapter1',
+            'DiscoverableTimeout',
+            '<uint32 0>',
+          ]);
+          await _safeRun('gdbus', [
+            'call',
+            '--system',
+            '--dest',
+            'org.bluez',
+            '--object-path',
+            adapterPath,
+            '--method',
+            'org.freedesktop.DBus.Properties.Set',
+            'org.bluez.Adapter1',
+            'Discoverable',
+            '<true>',
+          ]);
+          await _safeRun('gdbus', [
+            'call',
+            '--system',
+            '--dest',
+            'org.bluez',
+            '--object-path',
+            adapterPath,
+            '--method',
+            'org.freedesktop.DBus.Properties.Set',
+            'org.bluez.Adapter1',
+            'Pairable',
+            '<true>',
+          ]);
+        }
 
-        // 5. Ensure device is trusted and audio profile is active if already connected
+        // 5. Ensure all paired devices are trusted so BlueZ never rejects incoming A2DP audio connections
+        final pairedRes = await _safeRun('bluetoothctl', ['devices']);
+        if (pairedRes != null && pairedRes.exitCode == 0) {
+          final pLines = (pairedRes.stdout as String).split('\n');
+          for (final pLine in pLines) {
+            final tokens = pLine.trim().split(RegExp(r'\s+'));
+            if (tokens.length >= 2 && tokens[0] == 'Device') {
+              await _safeRun('bluetoothctl', ['trust', tokens[1]]);
+            }
+          }
+        }
+
+        // 6. Ensure device is trusted and audio profile is active if already connected
         if (_state.connectedDevice != null) {
           await _safeRun('bluetoothctl', ['trust', _state.connectedDevice!.mac]);
           await _ensureBluezProfileActive();
           await _ensureBluezAudioRouting();
         }
 
-        // 6. Ensure master output sink is unmuted
+        // 7. Ensure Laptop Speakers is default if currently defaulting to silent HDMI
+        try {
+          final defRes = await _safeRun('pactl', ['get-default-sink']);
+          final currentDef = (defRes?.stdout as String? ?? '').trim();
+          if (currentDef.toLowerCase().contains('hdmi')) {
+            final sinksRes = await _safeRun('pactl', ['-f', 'json', 'list', 'sinks']);
+            if (sinksRes != null && sinksRes.exitCode == 0) {
+              final sinksList = jsonDecode(sinksRes.stdout as String) as List<dynamic>;
+              for (final s in sinksList) {
+                final sMap = s as Map<String, dynamic>;
+                final name = sMap['name'] as String? ?? '';
+                if (name.toLowerCase().contains('speaker')) {
+                  await _safeRun('pactl', ['set-default-sink', name]);
+                  break;
+                }
+              }
+            }
+          }
+        } catch (_) {}
+
+        // 8. Ensure master output sink is unmuted
         await _safeRun('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
 
         _state = _state.copyWith(
@@ -490,15 +525,27 @@ class BluetoothService extends ChangeNotifier {
       // 1. Unblock bluetooth and power on
       await _safeRun('rfkill', ['unblock', 'bluetooth']);
       await _safeRun('bluetoothctl', ['power', 'on']);
+      await _safeRun('bluetoothctl', ['agent', 'NoInputNoOutput']);
+      await _safeRun('bluetoothctl', ['default-agent']);
       await _safeRun('bluetoothctl', ['pairable', 'on']);
       await _safeRun('bluetoothctl', ['discoverable', 'on']);
 
-      // 2. Trust connected device if any
+      // 2. Trust all paired devices and connected device
+      final pairedRes = await _safeRun('bluetoothctl', ['devices']);
+      if (pairedRes != null && pairedRes.exitCode == 0) {
+        final pLines = (pairedRes.stdout as String).split('\n');
+        for (final pLine in pLines) {
+          final tokens = pLine.trim().split(RegExp(r'\s+'));
+          if (tokens.length >= 2 && tokens[0] == 'Device') {
+            await _safeRun('bluetoothctl', ['trust', tokens[1]]);
+          }
+        }
+      }
       if (_state.connectedDevice != null) {
         await _safeRun('bluetoothctl', ['trust', _state.connectedDevice!.mac]);
       }
 
-      // 3. Restore bluez profile to audio-gateway
+      // 3. Restore bluez profile with A2DP media priority
       await _ensureBluezProfileActive();
 
       // 4. Ensure Laptop Speakers is default if currently defaulting to silent HDMI
@@ -552,7 +599,11 @@ class BluetoothService extends ChangeNotifier {
       final outPorts = (outRes.stdout as String)
           .split('\n')
           .map((l) => l.trim())
-          .where((l) => l.startsWith('bluez_input.'))
+          .where((l) =>
+              (l.toLowerCase().contains('bluez') ||
+                  l.startsWith('bluez_input.') ||
+                  l.startsWith('bluez_source.')) &&
+              !l.toLowerCase().contains('midi'))
           .toList();
 
       if (outPorts.isEmpty) return;
@@ -598,6 +649,50 @@ class BluetoothService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  String? _selectBestAudioProfile(Map<String, dynamic> profiles) {
+    final keys = profiles.keys.map((k) => k.toString()).toList();
+    if (keys.isEmpty) return null;
+
+    // 1. High-fidelity A2DP source (phone streaming audio to PC) with preferred codecs
+    for (final codec in ['ldac', 'aptx_hd', 'aptx', 'aac', 'sbc', 'opus']) {
+      for (final k in keys) {
+        final kl = k.toLowerCase();
+        if ((kl.startsWith('a2dp-source') || kl.startsWith('a2dp_source')) && kl.contains(codec)) {
+          return k;
+        }
+      }
+    }
+
+    // 2. Generic A2DP source
+    for (final k in keys) {
+      final kl = k.toLowerCase();
+      if (kl.startsWith('a2dp-source') || kl.startsWith('a2dp_source') || kl == 'a2dp') {
+        return k;
+      }
+    }
+
+    // 3. Any A2DP sink/source profile
+    for (final k in keys) {
+      final kl = k.toLowerCase();
+      if (kl.contains('a2dp') && kl != 'off') {
+        return k;
+      }
+    }
+
+    // 4. Handsfree / headset as last resort
+    if (profiles.containsKey('audio-gateway')) {
+      return 'audio-gateway';
+    }
+    if (profiles.containsKey('headset-head-unit')) {
+      return 'headset-head-unit';
+    }
+    if (profiles.containsKey('handsfree-audio-gateway')) {
+      return 'handsfree-audio-gateway';
+    }
+
+    return null;
+  }
+
   Future<void> _ensureBluezProfileActive() async {
     if (!Platform.isLinux) return;
     try {
@@ -610,12 +705,7 @@ class BluetoothService extends ChangeNotifier {
           if (name.startsWith('bluez_card.')) {
             final activeProfile = cMap['active_profile'] as String? ?? '';
             final profiles = cMap['profiles'] as Map<String, dynamic>? ?? {};
-            String? targetProfile;
-            if (profiles.containsKey('audio-gateway')) {
-              targetProfile = 'audio-gateway';
-            } else if (profiles.containsKey('a2dp-source')) {
-              targetProfile = 'a2dp-source';
-            }
+            final targetProfile = _selectBestAudioProfile(profiles);
             if (targetProfile != null && activeProfile != targetProfile) {
               await _safeRun('pactl', ['set-card-profile', name, targetProfile]);
             }
@@ -623,6 +713,24 @@ class BluetoothService extends ChangeNotifier {
         }
       }
     } catch (_) {}
+  }
+
+  Future<bool> connectDevice(String mac) async {
+    try {
+      if (Platform.isLinux) {
+        await _safeRun('bluetoothctl', ['trust', mac]);
+        final res = await _safeRun(
+          'bluetoothctl',
+          ['connect', mac],
+          timeout: const Duration(seconds: 8),
+        );
+        await refresh();
+        return res != null && res.exitCode == 0;
+      } else if (Platform.isWindows) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   Future<void> disconnectDevice(String mac) async {
@@ -688,6 +796,20 @@ class BluetoothService extends ChangeNotifier {
             final parts = trimmed.split('Name:');
             if (parts.length > 1 && (alias.isEmpty || alias == 'Ever Dialer PC')) {
               alias = parts[1].trim();
+            }
+          }
+        }
+
+        // Ensure all paired devices remain trusted in BlueZ
+        final pairedResult = await _safeRun('bluetoothctl', ['devices']);
+        if (pairedResult != null && pairedResult.exitCode == 0) {
+          final pText = (pairedResult.stdout as String).trim();
+          if (pText.isNotEmpty) {
+            for (final pLine in pText.split('\n')) {
+              final tokens = pLine.trim().split(RegExp(r'\s+'));
+              if (tokens.length >= 2 && tokens[0] == 'Device') {
+                _safeRun('bluetoothctl', ['trust', tokens[1]]);
+              }
             }
           }
         }
@@ -831,15 +953,10 @@ class BluetoothService extends ChangeNotifier {
                 final activeProfile = cMap['active_profile'] as String? ?? '';
                 if (activeProfile == 'off') {
                   phoneProfileActive = false;
-                  // Auto-restore audio-gateway profile if speaker mode is enabled
+                  // Auto-restore best audio profile if speaker mode is enabled
                   if (_state.speakerModeEnabled && _state.connectedDevice != null) {
                     final profiles = cMap['profiles'] as Map<String, dynamic>? ?? {};
-                    String? targetProfile;
-                    if (profiles.containsKey('audio-gateway')) {
-                      targetProfile = 'audio-gateway';
-                    } else if (profiles.containsKey('a2dp-source')) {
-                      targetProfile = 'a2dp-source';
-                    }
+                    final targetProfile = _selectBestAudioProfile(profiles);
                     if (targetProfile != null && activeProfile != targetProfile) {
                       await _safeRun('pactl', ['set-card-profile', name, targetProfile]);
                       phoneProfileActive = true;
