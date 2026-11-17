@@ -2,6 +2,19 @@
 cmake_minimum_required(VERSION 3.13)
 project(runner LANGUAGES CXX)
 
+# Dual-boot self-healing: Auto-repair package_config.json if switched from Windows
+set(PKG_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../.dart_tool/package_config.json")
+if(EXISTS "${PKG_CONFIG_FILE}")
+  file(READ "${PKG_CONFIG_FILE}" PKG_CONFIG_STR LIMIT 2000)
+  if(PKG_CONFIG_STR MATCHES "file:///C:" OR PKG_CONFIG_STR MATCHES "file:///c:")
+    message(STATUS "[Dual-Boot] Detected Windows package paths in Linux environment. Healing dependencies...")
+    execute_process(
+      COMMAND bash -c "flutter pub get"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+  endif()
+endif()
+
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
 set(BINARY_NAME "ever_dialer_pc")

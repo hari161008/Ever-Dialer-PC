@@ -351,14 +351,19 @@ Keywords=Bluetooth;Dialer;Audio;Speaker;A2DP;
         if (_isUserInstall) {
           final appsDir = Directory('$home/.local/share/applications');
           await appsDir.create(recursive: true);
-          final menuFile = File('${appsDir.path}/ever_dialer_pc.desktop');
-          await menuFile.writeAsString(desktopEntryContent);
-          await Process.run('chmod', ['+x', menuFile.path]);
+          final menuFile1 = File('${appsDir.path}/ever_dialer_pc.desktop');
+          final menuFile2 = File('${appsDir.path}/com.everdialer.ever_dialer_pc.desktop');
+          await menuFile1.writeAsString(desktopEntryContent);
+          await menuFile2.writeAsString(desktopEntryContent);
+          await Process.run('chmod', ['+x', menuFile1.path]);
+          await Process.run('chmod', ['+x', menuFile2.path]);
         } else {
           final tmpDesktop = File('/tmp/ever_dialer_pc.desktop');
           await tmpDesktop.writeAsString(desktopEntryContent);
           await Process.run('pkexec', ['cp', tmpDesktop.path, '/usr/share/applications/ever_dialer_pc.desktop']);
+          await Process.run('pkexec', ['cp', tmpDesktop.path, '/usr/share/applications/com.everdialer.ever_dialer_pc.desktop']);
           await Process.run('pkexec', ['chmod', '+x', '/usr/share/applications/ever_dialer_pc.desktop']);
+          await Process.run('pkexec', ['chmod', '+x', '/usr/share/applications/com.everdialer.ever_dialer_pc.desktop']);
           try { await tmpDesktop.delete(); } catch (_) {}
         }
       }

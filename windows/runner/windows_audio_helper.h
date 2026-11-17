@@ -146,8 +146,10 @@ inline std::vector<AudioSinkDevice> GetAudioSinks() {
         if (SUCCEEDED(pEndpoint->OpenPropertyStore(STGM_READ, &pProps)) && pProps) {
           PROPVARIANT varName;
           PropVariantInit(&varName);
-          if (SUCCEEDED(pProps->GetValue(PKEY_Device_FriendlyName, &varName)) && varName.pwszVal) {
-            info.name = Utf16ToUtf8(varName.pwszVal);
+          if (SUCCEEDED(pProps->GetValue(PKEY_Device_FriendlyName, &varName))) {
+            if (varName.vt == VT_LPWSTR && varName.pwszVal) {
+              info.name = Utf16ToUtf8(varName.pwszVal);
+            }
           }
           PropVariantClear(&varName);
           pProps->Release();

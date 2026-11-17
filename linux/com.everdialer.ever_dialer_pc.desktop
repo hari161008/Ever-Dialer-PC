@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Ever Dialer PC
+GenericName=Bluetooth Audio Companion
+Comment=Stream phone audio to PC speakers and control dialer features
+Exec=ever_dialer_pc
+Icon=ever_dialer_pc
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Utility;
+StartupWMClass=ever_dialer_pc
+Keywords=Bluetooth;Dialer;Audio;Speaker;A2DP;

@@ -210,7 +210,7 @@ def start_bluez_profile():
             'Role': 'server',
             'RequireAuthentication': dbus.Boolean(False),
             'RequireAuthorization': dbus.Boolean(False),
-            'AutoConnect': dbus.Boolean(True)
+            'AutoConnect': dbus.Boolean(False)
         }
         manager.RegisterProfile('/everdialer/sync_profile', EVER_DIALER_UUID, opts)
         log(f"Registered BlueZ Profile1 object for UUID {EVER_DIALER_UUID}")

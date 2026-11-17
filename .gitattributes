@@ -1,0 +1,26 @@
+# Enforce consistent line endings across Windows and Linux dual boot
+* text=auto
+
+# Linux scripts and files must have LF
+*.sh text eol=lf
+*.desktop text eol=lf
+*.py text eol=lf
+*.cc text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+
+# Windows scripts and resource files must have CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.iss text eol=crlf
+*.rc text eol=crlf
+*.manifest text eol=crlf
+
+# Binary files
+*.ico binary
+*.png binary
+*.so binary
+*.dll binary
+*.exe binary
+*.bin binary

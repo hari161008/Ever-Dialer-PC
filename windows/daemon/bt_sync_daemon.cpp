@@ -42,6 +42,7 @@ static const GUID SPP_UUID = {
 
 static std::atomic<bool> g_running(true);
 static std::atomic<bool> g_audioEnabled(true);
+static std::atomic<bool> g_connectingAudio(false);
 static SOCKET g_activeClientSock = INVALID_SOCKET;
 static SOCKET g_serverSock = INVALID_SOCKET;
 static std::mutex g_sockMutex;
@@ -68,6 +69,14 @@ void emit_event(const std::string& json_str) {
     std::cout.flush();
 }
 
+std::string wideToUtf8(const std::wstring& wstr) {
+    if (wstr.empty()) return std::string();
+    int size = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string str(size, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), (int)wstr.size(), &str[0], size, NULL, NULL);
+    return str;
+}
+
 std::string bthAddrToString(BTH_ADDR addr) {
     std::ostringstream oss;
     for (int i = 5; i >= 0; --i) {
@@ -78,9 +87,10 @@ std::string bthAddrToString(BTH_ADDR addr) {
     return oss.str();
 }
 
+// Fixed 48-bit MAC address parsing (44 bits shift for 12 hex digits)
 BTH_ADDR stringToBthAddr(const std::string& str) {
     BTH_ADDR addr = 0;
-    int shift = 40;
+    int shift = 44;
     for (size_t i = 0; i < str.length(); ++i) {
         char c = str[i];
         int val = -1;
@@ -108,8 +118,51 @@ std::string getDeviceName(BTH_ADDR addr) {
     return "Mobile Device";
 }
 
+std::string find_bonded_phone() {
+    BLUETOOTH_DEVICE_SEARCH_PARAMS sp = { sizeof(BLUETOOTH_DEVICE_SEARCH_PARAMS) };
+    sp.fReturnAuthenticated = TRUE;
+    sp.fReturnRemembered = TRUE;
+    sp.fReturnConnected = TRUE;
+    sp.fReturnUnknown = FALSE;
+    sp.hRadio = NULL;
+
+    BLUETOOTH_DEVICE_INFO di = { sizeof(BLUETOOTH_DEVICE_INFO) };
+    HBLUETOOTH_DEVICE_FIND hFind = BluetoothFindFirstDevice(&sp, &di);
+    if (hFind) {
+        do {
+            std::string name = wideToUtf8(di.szName);
+            std::string lowerName = name;
+            for (char& c : lowerName) c = (char)tolower(c);
+            if (lowerName.find("buds") != std::string::npos ||
+                lowerName.find("headset") != std::string::npos ||
+                lowerName.find("airpods") != std::string::npos ||
+                lowerName.find("watch") != std::string::npos) {
+                continue;
+            }
+            std::string mac = bthAddrToString(di.Address.ullLong);
+            BluetoothFindDeviceClose(hFind);
+            return mac;
+        } while (BluetoothFindNextDevice(hFind, &di));
+        BluetoothFindDeviceClose(hFind);
+    }
+    return "";
+}
+
 // -------------------------------------------------------------
-// Audio Playback Connection (A2DP Bluetooth Sink / Spoofed Speaker)
+// Bluetooth Radio Discoverability & Incoming Connections
+// -------------------------------------------------------------
+void set_windows_discoverable(bool enable) {
+    try {
+        BluetoothEnableIncomingConnections(NULL, enable ? TRUE : FALSE);
+        BluetoothEnableDiscovery(NULL, enable ? TRUE : FALSE);
+        log_msg(std::string("Bluetooth incoming connections & discovery set to: ") + (enable ? "ENABLED" : "DISABLED"));
+    } catch (...) {
+        log_msg("Exception setting Bluetooth discoverability");
+    }
+}
+
+// -------------------------------------------------------------
+// Audio Playback Connection (A2DP Bluetooth Sink / External Speaker)
 // -------------------------------------------------------------
 void stop_audio_sink() {
     std::lock_guard<std::mutex> lock(g_audioMutex);
@@ -120,113 +173,112 @@ void stop_audio_sink() {
         } catch (...) {}
         g_audioConn = nullptr;
     }
+    emit_event("{\"event\":\"audio_status\",\"active\":false}");
 }
 
-bool start_audio_sink(const std::string& targetMac = "") {
-    std::lock_guard<std::mutex> lock(g_audioMutex);
+winrt::fire_and_forget connect_audio_sink_async(std::string targetMac = "") {
     if (!g_audioEnabled) {
-        return false;
+        co_return;
+    }
+
+    bool expected = false;
+    if (!g_connectingAudio.compare_exchange_strong(expected, true)) {
+        log_msg("Audio connection request already in progress, skipping duplicate attempt.");
+        co_return;
     }
 
     try {
-        if (g_audioConn && g_audioConn.State() == AudioPlaybackConnectionState::Opened) {
-            return true;
+        try {
+            init_apartment();
+        } catch (...) {}
+
+        {
+            std::lock_guard<std::mutex> lock(g_audioMutex);
+            if (g_audioConn && g_audioConn.State() == AudioPlaybackConnectionState::Opened) {
+                log_msg("AudioPlaybackConnection is already opened and active.");
+                emit_event("{\"event\":\"audio_status\",\"active\":true,\"opened\":true}");
+                g_connectingAudio = false;
+                co_return;
+            }
         }
 
         auto selector = AudioPlaybackConnection::GetDeviceSelector();
-        auto devices = DeviceInformation::FindAllAsync(selector).get();
+        auto devices = co_await DeviceInformation::FindAllAsync(selector);
         if (devices.Size() == 0) {
-            log_msg("No AudioPlaybackConnection devices discovered yet");
-            return false;
+            log_msg("No AudioPlaybackConnection devices discovered yet.");
+            emit_event("{\"event\":\"audio_status\",\"active\":false,\"reason\":\"no_device_found\"}");
+            g_connectingAudio = false;
+            co_return;
         }
 
-        DeviceInformation selectedDev{ nullptr };
-        std::string cleanedTargetMac = targetMac;
-        // Strip colons for comparison with device IDs
-        std::string strippedMac = "";
+        DeviceInformation selectedDev = devices.GetAt(0);
+        std::string strippedTarget = "";
         for (char c : targetMac) {
-            if (c != ':') strippedMac += (char)toupper(c);
+            if (c != ':') strippedTarget += (char)toupper(c);
         }
 
-        for (uint32_t i = 0; i < devices.Size(); ++i) {
-            auto dev = devices.GetAt(i);
-            std::wstring devIdW = dev.Id().c_str();
-            std::string devId(devIdW.begin(), devIdW.end());
-            for (char& c : devId) c = (char)toupper(c);
-
-            if (!strippedMac.empty()) {
-                if (devId.find(strippedMac) != std::string::npos) {
+        if (!strippedTarget.empty()) {
+            for (uint32_t i = 0; i < devices.Size(); ++i) {
+                auto dev = devices.GetAt(i);
+                std::string devId = wideToUtf8(dev.Id().c_str());
+                for (char& c : devId) c = (char)toupper(c);
+                if (devId.find(strippedTarget) != std::string::npos) {
                     selectedDev = dev;
                     break;
                 }
-            } else {
-                selectedDev = dev;
-                break;
             }
         }
 
-        if (!selectedDev) {
-            selectedDev = devices.GetAt(0);
+        std::string devName = wideToUtf8(selectedDev.Name().c_str());
+        log_msg("Configuring AudioPlaybackConnection for: " + devName);
+
+        auto conn = AudioPlaybackConnection::TryCreateFromId(selectedDev.Id());
+        if (!conn) {
+            log_msg("AudioPlaybackConnection::TryCreateFromId returned null");
+            g_connectingAudio = false;
+            co_return;
         }
 
-        if (selectedDev) {
-            std::wstring devNameW = selectedDev.Name().c_str();
-            std::string devName(devNameW.begin(), devNameW.end());
-            log_msg("Attempting AudioPlaybackConnection to: " + devName);
-
-            auto conn = AudioPlaybackConnection::TryCreateFromId(selectedDev.Id());
-            if (conn) {
-                conn.StateChanged([](AudioPlaybackConnection const& sender, IInspectable const&) {
-                    int stateVal = (int)sender.State();
-                    if (stateVal == 1) { // Opened
-                        log_msg("AudioPlaybackConnection OPENED! PC is receiving phone audio as external speaker.");
-                        emit_event("{\"event\":\"audio_status\",\"active\":true}");
-                    } else if (stateVal == 0) { // Closed
-                        log_msg("AudioPlaybackConnection closed");
-                        emit_event("{\"event\":\"audio_status\",\"active\":false}");
-                    }
-                });
-
-                conn.Start();
-                auto openRes = conn.OpenAsync().get();
-                if ((int)openRes.Status() == 0) {
-                    g_audioConn = conn;
-                    log_msg("Successfully established A2DP Sink audio connection to " + devName);
-                    emit_event("{\"event\":\"audio_status\",\"active\":true,\"device\":\"" + devName + "\"}");
-                    return true;
-                } else {
-                    log_msg("conn.OpenAsync() returned status: " + std::to_string((int)openRes.Status()));
-                }
+        conn.StateChanged([](AudioPlaybackConnection const& sender, IInspectable const&) {
+            int stateVal = (int)sender.State();
+            if (stateVal == (int)AudioPlaybackConnectionState::Opened) {
+                log_msg("AudioPlaybackConnection OPENED! PC is receiving phone audio as external speaker.");
+                emit_event("{\"event\":\"audio_status\",\"active\":true,\"opened\":true}");
+            } else if (stateVal == (int)AudioPlaybackConnectionState::Closed) {
+                log_msg("AudioPlaybackConnection closed.");
+                emit_event("{\"event\":\"audio_status\",\"active\":false}");
             }
+        });
+
+        // Register the A2DP Sink connection with Windows audio engine
+        log_msg("Calling conn.Start() to enable A2DP Sink audio routing...");
+        conn.Start();
+        {
+            std::lock_guard<std::mutex> lock(g_audioMutex);
+            g_audioConn = conn;
+        }
+
+        emit_event("{\"event\":\"audio_status\",\"active\":true,\"device\":\"" + devName + "\",\"started\":true}");
+
+        // Attempt active link opening
+        log_msg("Calling co_await conn.OpenAsync()...");
+        auto openRes = co_await conn.OpenAsync();
+        int statusVal = (int)openRes.Status();
+        if (statusVal == (int)AudioPlaybackConnectionOpenResultStatus::Success) {
+            log_msg("Successfully opened AudioPlaybackConnection to " + devName + " (status: Success)");
+            emit_event("{\"event\":\"audio_status\",\"active\":true,\"device\":\"" + devName + "\",\"opened\":true}");
+        } else {
+            log_msg("conn.OpenAsync() status: " + std::to_string(statusVal) + " (sink remains active in listening mode)");
         }
     } catch (const hresult_error& ex) {
-        std::wstring msg = ex.message().c_str();
-        std::string sMsg(msg.begin(), msg.end());
-        log_msg("AudioPlaybackConnection WinRT exception: " + sMsg);
+        log_msg("AudioPlaybackConnection WinRT exception: " + wideToUtf8(ex.message().c_str()));
     } catch (const std::exception& e) {
-        log_msg("AudioPlaybackConnection exception: " + std::string(e.what()));
+        log_msg("AudioPlaybackConnection std exception: " + std::string(e.what()));
+    } catch (...) {
+        log_msg("AudioPlaybackConnection unknown exception");
     }
-    return false;
-}
 
-void audio_watchdog_thread() {
-    while (g_running) {
-        std::this_thread::sleep_for(std::chrono::seconds(4));
-        if (!g_running) break;
-
-        if (g_audioEnabled) {
-            bool needStart = false;
-            {
-                std::lock_guard<std::mutex> lock(g_audioMutex);
-                if (!g_audioConn || g_audioConn.State() != AudioPlaybackConnectionState::Opened) {
-                    needStart = true;
-                }
-            }
-            if (needStart) {
-                start_audio_sink(g_currentPhoneMac);
-            }
-        }
-    }
+    g_connectingAudio = false;
 }
 
 // -------------------------------------------------------------
@@ -241,47 +293,20 @@ void process_phone_line(const std::string& line, int connId) {
         return;
     }
 
-    // Extract "type"
-    size_t typePos = line.find("\"type\"");
-    std::string eventName = "sync_data";
-    if (typePos != std::string::npos) {
-        size_t colon = line.find(':', typePos);
-        if (colon != std::string::npos) {
-            size_t q1 = line.find('\"', colon);
-            if (q1 != std::string::npos) {
-                size_t q2 = line.find('\"', q1 + 1);
-                if (q2 != std::string::npos) {
-                    eventName = line.substr(q1 + 1, q2 - q1 - 1);
-                }
-            }
-        }
-    }
-
-    // Extract "payload"
-    size_t payloadPos = line.find("\"payload\"");
-    if (payloadPos != std::string::npos) {
-        size_t colon = line.find(':', payloadPos);
-        if (colon != std::string::npos) {
-            size_t valStart = line.find_first_not_of(" \t\r\n", colon + 1);
-            if (valStart != std::string::npos) {
-                size_t lastBrace = line.rfind('}');
-                if (lastBrace != std::string::npos && lastBrace > valStart) {
-                    std::string payloadStr = line.substr(valStart, lastBrace - valStart);
-                    while (!payloadStr.empty() && (payloadStr.back() == ' ' || payloadStr.back() == '\t' || payloadStr.back() == ',')) {
-                        payloadStr.pop_back();
-                    }
-                    std::string out = "{\"event\":\"" + eventName + "\",\"payload\":" + payloadStr + "}";
-                    emit_event(out);
-                    return;
-                }
-            }
-        }
+    // Transform mobile packets: {"type":"sync_calls", ...} -> {"event":"sync_calls", ...}
+    std::string out = line;
+    size_t pos = out.find("\"type\"");
+    if (pos != std::string::npos) {
+        out.replace(pos, 6, "\"event\"");
+        emit_event(out);
+        return;
     }
 
     // Fallback: wrap line as payload
-    std::string out = "{\"event\":\"" + eventName + "\",\"payload\":" + line + "}";
-    emit_event(out);
+    emit_event("{\"event\":\"sync_data\",\"payload\":" + line + "}");
 }
+
+void try_connect_rfcomm(const std::string& macStr);
 
 void handle_socket_connection(SOCKET clientSock, BTH_ADDR peerAddr, std::string explicitDevName = "") {
     int myConnId = 0;
@@ -312,9 +337,7 @@ void handle_socket_connection(SOCKET clientSock, BTH_ADDR peerAddr, std::string 
     emit_event(ss.str());
 
     // Automatically initialize A2DP Audio Sink connection for this phone so phone audio routes to PC speakers
-    std::thread([macStr]() {
-        start_audio_sink(macStr);
-    }).detach();
+    connect_audio_sink_async(macStr);
 
     // Immediately request telemetry
     const char* telemReq = "{\"cmd\": \"request_telemetry\"}\n";
@@ -405,18 +428,18 @@ void try_connect_rfcomm(const std::string& macStr) {
         }
     }
 
-    log_msg("Attempting outgoing RFCOMM connect to " + macStr + "...");
+    log_msg("Attempting outgoing RFCOMM connect to " + macStr + " on Channel 4...");
     SOCKET sock = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
     if (sock == INVALID_SOCKET) {
         log_msg("socket() failed: " + std::to_string(WSAGetLastError()));
         return;
     }
 
-    DWORD timeout = 3500;
+    DWORD timeout = 4000;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
 
-    // Try Strategy A: Channel 4
+    // Strategy A: Channel 4 (matches Android server channel directly)
     SOCKADDR_BTH sa = { 0 };
     sa.addressFamily = AF_BTH;
     sa.btAddr = addr;
@@ -429,7 +452,9 @@ void try_connect_rfcomm(const std::string& macStr) {
         return;
     }
 
-    // Try Strategy B: Ever Dialer GUID
+    log_msg("Channel 4 connect failed (" + std::to_string(WSAGetLastError()) + "), trying Ever Dialer UUID...");
+
+    // Strategy B: Ever Dialer GUID
     closesocket(sock);
     sock = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
     if (sock != INVALID_SOCKET) {
@@ -450,7 +475,24 @@ void try_connect_rfcomm(const std::string& macStr) {
         closesocket(sock);
     }
 
-    log_msg("Outgoing connect to " + macStr + " failed");
+    log_msg("Outgoing connect to " + macStr + " failed (" + std::to_string(WSAGetLastError()) + ")");
+}
+
+void background_reconnect_thread() {
+    while (g_running) {
+        std::this_thread::sleep_for(std::chrono::seconds(4));
+        if (!g_running) break;
+
+        bool isConnected = false;
+        {
+            std::lock_guard<std::mutex> lock(g_sockMutex);
+            isConnected = (g_activeClientSock != INVALID_SOCKET);
+        }
+
+        if (!isConnected && !g_currentPhoneMac.empty()) {
+            try_connect_rfcomm(g_currentPhoneMac);
+        }
+    }
 }
 
 void rfcomm_server_thread() {
@@ -564,16 +606,22 @@ void stdin_listener() {
         log_msg("PC command received: " + line);
 
         if (line.find("\"cmd\":\"start_audio\"") != std::string::npos ||
-            line.find("\"cmd\": \"start_audio\"") != std::string::npos) {
+            line.find("\"cmd\": \"start_audio\"") != std::string::npos ||
+            line.find("\"cmd\":\"enable_audio\"") != std::string::npos ||
+            line.find("\"cmd\": \"enable_audio\"") != std::string::npos) {
             g_audioEnabled = true;
-            std::thread([]() { start_audio_sink(g_currentPhoneMac); }).detach();
+            set_windows_discoverable(true);
+            connect_audio_sink_async(g_currentPhoneMac);
             continue;
         }
 
         if (line.find("\"cmd\":\"stop_audio\"") != std::string::npos ||
-            line.find("\"cmd\": \"stop_audio\"") != std::string::npos) {
+            line.find("\"cmd\": \"stop_audio\"") != std::string::npos ||
+            line.find("\"cmd\":\"disable_audio\"") != std::string::npos ||
+            line.find("\"cmd\": \"disable_audio\"") != std::string::npos) {
             g_audioEnabled = false;
             stop_audio_sink();
+            set_windows_discoverable(false);
             continue;
         }
 
@@ -581,8 +629,8 @@ void stdin_listener() {
             line.find("\"cmd\": \"repair_audio\"") != std::string::npos) {
             g_audioEnabled = true;
             stop_audio_sink();
-            std::this_thread::sleep_for(std::chrono::milliseconds(300));
-            std::thread([]() { start_audio_sink(g_currentPhoneMac); }).detach();
+            set_windows_discoverable(true);
+            connect_audio_sink_async(g_currentPhoneMac);
             continue;
         }
 
@@ -609,8 +657,9 @@ void stdin_listener() {
                         if (q2 != std::string::npos) {
                             std::string targetMac = line.substr(q1 + 1, q2 - q1 - 1);
                             if (!targetMac.empty()) {
+                                g_currentPhoneMac = targetMac;
                                 std::thread(try_connect_rfcomm, targetMac).detach();
-                                std::thread([targetMac]() { start_audio_sink(targetMac); }).detach();
+                                connect_audio_sink_async(targetMac);
                                 continue;
                             }
                         }
@@ -626,12 +675,15 @@ void stdin_listener() {
                 std::string toSend = line + "\n";
                 int sent = send(g_activeClientSock, toSend.c_str(), (int)toSend.length(), 0);
                 if (sent > 0) {
-                    log_msg("Successfully transmitted command to phone over Bluetooth");
+                    log_msg("Successfully transmitted command to phone over Bluetooth: " + line);
                 } else {
                     log_msg("Failed to forward stdin command to mobile: " + std::to_string(WSAGetLastError()));
                 }
             } else {
-                log_msg("Cannot forward command: phone is not connected via Bluetooth");
+                log_msg("Cannot forward command: phone is not connected via Bluetooth (" + line + ")");
+                if (!g_currentPhoneMac.empty()) {
+                    std::thread(try_connect_rfcomm, g_currentPhoneMac).detach();
+                }
             }
         }
     }
@@ -659,6 +711,9 @@ int main() {
         init_apartment();
     } catch (...) {}
 
+    // Enable Bluetooth discoverability and allow incoming connections
+    set_windows_discoverable(true);
+
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         log_msg("WSAStartup failed");
@@ -672,25 +727,31 @@ int main() {
     std::thread serverThread(rfcomm_server_thread);
     serverThread.detach();
 
-    // Background Audio Watchdog (A2DP Bluetooth Sink / Audio Receiver)
-    std::thread audioThread(audio_watchdog_thread);
-    audioThread.detach();
-
-    // Initial audio sink connection check (if phone already paired)
-    std::thread([]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        start_audio_sink();
-    }).detach();
+    // Auto-discover paired/bonded phone
+    std::string bondedMac = find_bonded_phone();
+    if (!bondedMac.empty()) {
+        log_msg("Discovered paired phone: " + bondedMac + ". Initiating RFCOMM & Audio sink...");
+        g_currentPhoneMac = bondedMac;
+        std::thread(try_connect_rfcomm, bondedMac).detach();
+        connect_audio_sink_async(bondedMac);
+    } else {
+        connect_audio_sink_async("");
+    }
 
     // Stdin command listener
     std::thread stdinThread(stdin_listener);
     stdinThread.detach();
+
+    // Watchdog to auto-reconnect if phone disconnects
+    std::thread watchdogThread(background_reconnect_thread);
+    watchdogThread.detach();
 
     while (g_running) {
         Sleep(500);
     }
 
     stop_audio_sink();
+    set_windows_discoverable(false);
 
     // Cleanup SDP
     if (g_sdpEverDialerRegistered) {

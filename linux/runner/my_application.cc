@@ -6,6 +6,7 @@
 #endif
 #include <signal.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -322,6 +323,132 @@ static void sni_method_call_cb(GDBusConnection* connection,
   g_dbus_method_invocation_return_value(invocation, nullptr);
 }
 
+static gchar* find_application_icon_path() {
+  const gchar* appdir_env = g_getenv("APPDIR");
+  if (appdir_env != nullptr) {
+    gchar* appimage_icon = g_build_filename(appdir_env, "ever_dialer_pc.png", nullptr);
+    if (g_file_test(appimage_icon, G_FILE_TEST_EXISTS)) {
+      return appimage_icon;
+    }
+    g_free(appimage_icon);
+    appimage_icon = g_build_filename(appdir_env, "usr", "share", "icons", "hicolor", "512x512", "apps", "ever_dialer_pc.png", nullptr);
+    if (g_file_test(appimage_icon, G_FILE_TEST_EXISTS)) {
+      return appimage_icon;
+    }
+    g_free(appimage_icon);
+  }
+
+  g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
+  if (exe_path != nullptr) {
+    g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
+
+    const gchar* subpaths[] = {
+      "data/flutter_assets/assets/icons/app_icon_512.png",
+      "data/flutter_assets/assets/icons/app_icon.png",
+      "../bundle/data/flutter_assets/assets/icons/app_icon_512.png",
+      "../bundle/data/flutter_assets/assets/icons/app_icon.png",
+      "../../../../assets/icons/app_icon_512.png",
+      "../../../../assets/icons/app_icon.png",
+      "ever_dialer_pc.png",
+      nullptr
+    };
+
+    for (int i = 0; subpaths[i] != nullptr; ++i) {
+      gchar* cand = g_build_filename(exe_dir, subpaths[i], nullptr);
+      if (g_file_test(cand, G_FILE_TEST_EXISTS)) {
+        return cand;
+      }
+      g_free(cand);
+    }
+  }
+
+  const gchar* home = g_get_home_dir();
+  if (home != nullptr) {
+    gchar* user_icon = g_build_filename(
+        home, ".local", "share", "icons", "hicolor", "512x512", "apps", "ever_dialer_pc.png", nullptr);
+    if (g_file_test(user_icon, G_FILE_TEST_EXISTS)) {
+      return user_icon;
+    }
+    g_free(user_icon);
+  }
+
+  if (g_file_test("/usr/share/icons/hicolor/512x512/apps/ever_dialer_pc.png", G_FILE_TEST_EXISTS)) {
+    return g_strdup("/usr/share/icons/hicolor/512x512/apps/ever_dialer_pc.png");
+  }
+  if (g_file_test("/usr/share/pixmaps/ever_dialer_pc.png", G_FILE_TEST_EXISTS)) {
+    return g_strdup("/usr/share/pixmaps/ever_dialer_pc.png");
+  }
+
+  return nullptr;
+}
+
+static void ensure_desktop_and_icon_registered() {
+  const gchar* home = g_get_home_dir();
+  if (home == nullptr || strlen(home) == 0) return;
+
+  g_autofree gchar* source_icon = find_application_icon_path();
+  if (source_icon == nullptr) return;
+
+  // Auto-install to user's hicolor icon theme if not already present
+  const gchar* sizes[] = {"512x512", "256x256", "128x128", "64x64", "48x48", "32x32", nullptr};
+  for (int i = 0; sizes[i] != nullptr; ++i) {
+    g_autofree gchar* icon_dir = g_build_filename(
+        home, ".local", "share", "icons", "hicolor", sizes[i], "apps", nullptr);
+    g_mkdir_with_parents(icon_dir, 0755);
+    g_autofree gchar* target_icon = g_build_filename(icon_dir, "ever_dialer_pc.png", nullptr);
+    if (!g_file_test(target_icon, G_FILE_TEST_EXISTS)) {
+      g_autoptr(GFile) src = g_file_new_for_path(source_icon);
+      g_autoptr(GFile) dst = g_file_new_for_path(target_icon);
+      g_file_copy(src, dst, G_FILE_COPY_OVERWRITE, nullptr, nullptr, nullptr, nullptr);
+    }
+  }
+
+  g_autofree gchar* pixmaps_dir = g_build_filename(home, ".local", "share", "pixmaps", nullptr);
+  g_mkdir_with_parents(pixmaps_dir, 0755);
+  g_autofree gchar* pixmaps_target = g_build_filename(pixmaps_dir, "ever_dialer_pc.png", nullptr);
+  if (!g_file_test(pixmaps_target, G_FILE_TEST_EXISTS)) {
+    g_autoptr(GFile) src = g_file_new_for_path(source_icon);
+    g_autoptr(GFile) dst = g_file_new_for_path(pixmaps_target);
+    g_file_copy(src, dst, G_FILE_COPY_OVERWRITE, nullptr, nullptr, nullptr, nullptr);
+  }
+
+  // Auto-install desktop launcher entries in ~/.local/share/applications
+  g_autofree gchar* apps_dir = g_build_filename(home, ".local", "share", "applications", nullptr);
+  g_mkdir_with_parents(apps_dir, 0755);
+
+  g_autofree gchar* desktop1 = g_build_filename(apps_dir, "ever_dialer_pc.desktop", nullptr);
+  g_autofree gchar* desktop2 = g_build_filename(apps_dir, "com.everdialer.ever_dialer_pc.desktop", nullptr);
+
+  if (!g_file_test(desktop1, G_FILE_TEST_EXISTS) || !g_file_test(desktop2, G_FILE_TEST_EXISTS)) {
+    g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
+    const gchar* exec_target = (exe_path != nullptr) ? exe_path : "ever_dialer_pc";
+
+    g_autofree gchar* desktop_content = g_strdup_printf(
+        "[Desktop Entry]\n"
+        "Name=Ever Dialer PC\n"
+        "GenericName=Bluetooth Audio Companion\n"
+        "Comment=Stream phone audio to PC speakers and control dialer features\n"
+        "Exec=\"%s\" %%U\n"
+        "Icon=ever_dialer_pc\n"
+        "Terminal=false\n"
+        "Type=Application\n"
+        "Categories=AudioVideo;Audio;Utility;\n"
+        "StartupWMClass=ever_dialer_pc\n"
+        "Keywords=Bluetooth;Dialer;Audio;Speaker;A2DP;\n"
+        "X-Purism-FormFactor=Workstation;Mobile;\n",
+        exec_target);
+
+    if (!g_file_test(desktop1, G_FILE_TEST_EXISTS)) {
+      g_file_set_contents(desktop1, desktop_content, -1, nullptr);
+      chmod(desktop1, 0755);
+    }
+    if (!g_file_test(desktop2, G_FILE_TEST_EXISTS)) {
+      g_file_set_contents(desktop2, desktop_content, -1, nullptr);
+      chmod(desktop2, 0755);
+    }
+  }
+}
+
 static GVariant* sni_get_property_cb(GDBusConnection* connection,
                                      const gchar* sender,
                                      const gchar* object_path,
@@ -426,13 +553,7 @@ static void update_system_tray(GtkWindow* window, gboolean enabled) {
 
     // 2. Fallback GtkStatusIcon (for X11 / XFCE / MATE desktop environments)
     if (g_status_icon == nullptr) {
-      g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
-      g_autofree gchar* icon_path = nullptr;
-      if (exe_path != nullptr) {
-        g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
-        icon_path = g_build_filename(
-            exe_dir, "data", "flutter_assets", "assets", "icons", "app_icon.png", nullptr);
-      }
+      g_autofree gchar* icon_path = find_application_icon_path();
       if (icon_path != nullptr && g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
         g_status_icon = gtk_status_icon_new_from_file(icon_path);
       } else {
@@ -693,32 +814,17 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_default_size(window, 580, 720);
   }
 
+  // Self-heal user desktop integration and icon files if missing
+  ensure_desktop_and_icon_registered();
+
   // Set window icon from system theme or bundled asset fallback
   gtk_window_set_default_icon_name("ever_dialer_pc");
   gtk_window_set_icon_name(window, "ever_dialer_pc");
 
-  gboolean icon_loaded = FALSE;
-  const gchar* appdir_env = g_getenv("APPDIR");
-  if (appdir_env != nullptr) {
-    g_autofree gchar* appimage_icon = g_build_filename(appdir_env, "ever_dialer_pc.png", nullptr);
-    if (g_file_test(appimage_icon, G_FILE_TEST_EXISTS)) {
-      gtk_window_set_icon_from_file(window, appimage_icon, nullptr);
-      gtk_window_set_default_icon_from_file(appimage_icon, nullptr);
-      icon_loaded = TRUE;
-    }
-  }
-
-  if (!icon_loaded) {
-    g_autofree gchar* exe_path = g_file_read_link("/proc/self/exe", nullptr);
-    if (exe_path != nullptr) {
-      g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
-      g_autofree gchar* icon_path = g_build_filename(
-          exe_dir, "data", "flutter_assets", "assets", "icons", "app_icon.png", nullptr);
-      if (g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
-        gtk_window_set_icon_from_file(window, icon_path, nullptr);
-        gtk_window_set_default_icon_from_file(icon_path, nullptr);
-      }
-    }
+  g_autofree gchar* icon_path = find_application_icon_path();
+  if (icon_path != nullptr && g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
+    gtk_window_set_icon_from_file(window, icon_path, nullptr);
+    gtk_window_set_default_icon_from_file(icon_path, nullptr);
   }
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

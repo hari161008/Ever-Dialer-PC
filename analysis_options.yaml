@@ -14,6 +14,9 @@ analyzer:
     - build/**
     - linux/**
     - windows/**
+    - scripts/**
+  errors:
+    deprecated_member_use: ignore
 
 linter:
   # The lint rules applied to this project can be customized in the

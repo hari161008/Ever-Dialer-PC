@@ -2,6 +2,28 @@
 cmake_minimum_required(VERSION 3.14)
 project(ever_dialer_pc LANGUAGES CXX)
 
+# Dual-boot self-healing: Auto-repair package_config.json if switched from Linux
+set(PKG_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../.dart_tool/package_config.json")
+if(EXISTS "${PKG_CONFIG_FILE}")
+  file(READ "${PKG_CONFIG_FILE}" PKG_CONFIG_STR LIMIT 2000)
+  if(PKG_CONFIG_STR MATCHES "/home/")
+    message(STATUS "[Dual-Boot] Detected Linux package paths in Windows environment. Healing dependencies...")
+    execute_process(
+      COMMAND cmd.exe /c "flutter pub get"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+  endif()
+endif()
+
+# Auto-restore ephemeral cpp_client_wrapper if purged or missing
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/cpp_client_wrapper/core_implementations.cc")
+  file(GLOB_RECURSE ENGINE_WRAPPER "C:/Android/flutter/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper/*")
+  if(ENGINE_WRAPPER)
+    file(COPY "C:/Android/flutter/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper/"
+         DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/cpp_client_wrapper")
+  endif()
+endif()
+
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
 set(BINARY_NAME "ever_dialer_pc")
@@ -55,7 +77,7 @@ add_subdirectory("runner")
 # Bluetooth Sync & Audio Receiver Daemon for Windows (native RFCOMM & A2DP Sink)
 add_executable(bt_sync_daemon "daemon/bt_sync_daemon.cpp")
 target_compile_features(bt_sync_daemon PUBLIC cxx_std_17)
-target_compile_options(bt_sync_daemon PRIVATE /EHsc)
+target_compile_options(bt_sync_daemon PRIVATE /EHsc /await)
 target_link_libraries(bt_sync_daemon PRIVATE "windowsapp.lib" "ws2_32.lib" "bthprops.lib")
 
 

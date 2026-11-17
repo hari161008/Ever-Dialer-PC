@@ -177,9 +177,18 @@ void FlutterWindow::HandleSystemMethodCall(
     const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
     if (args) {
       auto it = args->find(flutter::EncodableValue("volume"));
-      if (it != args->end() && std::holds_alternative<int>(it->second)) {
-        int vol = std::get<int>(it->second);
-        ever_dialer::SetMasterVolume(vol);
+      if (it != args->end()) {
+        int vol = 50;
+        if (std::holds_alternative<int>(it->second)) {
+          vol = std::get<int>(it->second);
+          ever_dialer::SetMasterVolume(vol);
+        } else if (std::holds_alternative<int64_t>(it->second)) {
+          vol = static_cast<int>(std::get<int64_t>(it->second));
+          ever_dialer::SetMasterVolume(vol);
+        } else if (std::holds_alternative<double>(it->second)) {
+          vol = static_cast<int>(std::get<double>(it->second));
+          ever_dialer::SetMasterVolume(vol);
+        }
       }
     }
     result->Success();

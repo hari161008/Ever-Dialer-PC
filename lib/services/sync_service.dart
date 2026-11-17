@@ -937,8 +937,13 @@ class PcSyncService extends ChangeNotifier {
     if (newMac != null && newMac.isNotEmpty) {
       if (newMac != _currentConnectedMac) {
         _onDifferentPhoneConnected(newMac, newName ?? 'Phone');
-      } else if (deviceIsConnected && !_isConnected) {
+      } else if (!_isConnected) {
         _isConnected = true;
+        _sendCommand({
+          'cmd': 'connect',
+          'mac': newMac,
+          'name': newName ?? 'Phone',
+        });
         notifyListeners();
         requestSyncNow();
         requestTelemetryNow();
@@ -1127,6 +1132,10 @@ class PcSyncService extends ChangeNotifier {
   void _startBluetoothDaemon() {
     _stopBluetoothDaemon();
 
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      return;
+    }
+
     if (Platform.isWindows) {
       final exeDir = File(Platform.resolvedExecutable).parent.path;
       final candidateWindowsPaths = [
@@ -1170,6 +1179,14 @@ class PcSyncService extends ChangeNotifier {
                   debugPrint('[Daemon STDERR] $line');
                 });
 
+            if (_currentConnectedMac != null && _currentConnectedMac!.isNotEmpty) {
+              _sendCommand({
+                'cmd': 'connect',
+                'mac': _currentConnectedMac,
+                'name': _connectedDeviceName ?? 'Phone',
+              });
+            }
+
             process.exitCode.then((code) {
               debugPrint('[PcSyncService] Daemon exited with code $code');
               _isConnected = false;
@@ -1193,7 +1210,10 @@ class PcSyncService extends ChangeNotifier {
     final candidatePaths = [
       'lib/services/scripts/bt_sync_daemon.py',
       scriptPath,
-      '/home/hari/Computer Apps/Ever Dialer For PC/lib/services/scripts/bt_sync_daemon.py',
+      if (Platform.isLinux) ...[
+        '/run/media/hari/Windows-SSD/Android/PC Apps/Ever Dialer For PC/lib/services/scripts/bt_sync_daemon.py',
+        '/home/hari/Computer Apps/Ever Dialer For PC/lib/services/scripts/bt_sync_daemon.py',
+      ],
     ];
 
     String? validScript;
@@ -1234,6 +1254,14 @@ class PcSyncService extends ChangeNotifier {
             .listen((line) {
               debugPrint('[Daemon STDERR] $line');
             });
+
+        if (_currentConnectedMac != null && _currentConnectedMac!.isNotEmpty) {
+          _sendCommand({
+            'cmd': 'connect',
+            'mac': _currentConnectedMac,
+            'name': _connectedDeviceName ?? 'Phone',
+          });
+        }
 
         process.exitCode.then((code) {
           debugPrint('[PcSyncService] Daemon exited with code $code');
