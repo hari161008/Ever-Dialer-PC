@@ -1,6 +1,46 @@
 // ignore_for_file: avoid_print
 import 'dart:io';
 
+Directory findProjectDir() {
+  // 1. Walk upward from current directory
+  Directory dir = Directory.current;
+  while (true) {
+    final pubspec = File('${dir.path}/pubspec.yaml');
+    if (pubspec.existsSync()) {
+      final content = pubspec.readAsStringSync();
+      if (content.contains('name: ever_dialer_pc')) {
+        return dir;
+      }
+    }
+    final parent = dir.parent;
+    if (parent.path == dir.path) break;
+    dir = parent;
+  }
+
+  // 2. Resolve relative to script path
+  try {
+    final scriptFile = File(Platform.script.toFilePath());
+    final candidate = scriptFile.parent.parent;
+    if (File('${candidate.path}/pubspec.yaml').existsSync()) {
+      return candidate;
+    }
+  } catch (_) {}
+
+  // 3. Check cached configuration
+  try {
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '';
+    final configFile = File('$home/.config/ever_dialer_pc/project_dir');
+    if (configFile.existsSync()) {
+      final cached = configFile.readAsStringSync().trim();
+      if (Directory(cached).existsSync()) {
+        return Directory(cached);
+      }
+    }
+  } catch (_) {}
+
+  return Directory.current;
+}
+
 void main(List<String> args) async {
   print('====================================================');
   print('    Ever Dialer PC - Dual-Boot Platform Syncer     ');
@@ -11,12 +51,13 @@ void main(List<String> args) async {
   final currentOs = isWindows ? 'Windows' : (isLinux ? 'Linux' : Platform.operatingSystem);
   print('[INFO] Current Operating System: $currentOs');
 
-  final projectDir = Directory.current;
+  final projectDir = findProjectDir();
   final pubspecFile = File('${projectDir.path}/pubspec.yaml');
   if (!pubspecFile.existsSync()) {
-    print('[ERROR] Please run this script from the Ever Dialer For PC project root.');
+    print('[ERROR] Could not find the Ever Dialer PC project directory.');
     exit(1);
   }
+  print('[OK] Project located at: ${projectDir.path}');
 
   // 1. Check & heal package_config.json
   final pkgConfigFile = File('${projectDir.path}/.dart_tool/package_config.json');
@@ -26,18 +67,20 @@ void main(List<String> args) async {
     needsPubGet = true;
   } else {
     final content = pkgConfigFile.readAsStringSync();
-    if (isWindows && content.contains('/home/')) {
+    if (isWindows && (content.contains('/home/') || content.contains('file:///(?!([A-Za-z]:))'))) {
       print('[HEAL] Detected Linux paths in package_config.json on Windows.');
+      try { pkgConfigFile.deleteSync(); } catch (_) {}
       needsPubGet = true;
-    } else if (isLinux && (content.contains('file:///C:') || content.contains('file:///c:'))) {
+    } else if (isLinux && (content.contains('file:///C:') || content.contains('file:///c:') || content.contains(r'\\'))) {
       print('[HEAL] Detected Windows paths in package_config.json on Linux.');
+      try { pkgConfigFile.deleteSync(); } catch (_) {}
       needsPubGet = true;
     }
   }
 
   if (needsPubGet) {
     print('[STEP 1/3] Running flutter pub get for $currentOs...');
-    final pubResult = await Process.run('flutter', ['pub', 'get'], runInShell: true);
+    final pubResult = await Process.run('flutter', ['pub', 'get'], workingDirectory: projectDir.path, runInShell: true);
     if (pubResult.exitCode != 0) {
       print('[WARN] flutter pub get returned exit code ${pubResult.exitCode}:');
       print(pubResult.stderr);
@@ -75,8 +118,7 @@ void main(List<String> args) async {
 
     // Ensure scripts have +x permissions
     try {
-      await Process.run('chmod', ['+x', 'scripts/app_release.sh']);
-      await Process.run('chmod', ['+x', 'lib/services/scripts/bt_sync_daemon.py']);
+      await Process.run('chmod', ['+x', 'scripts/heal.sh', 'scripts/app_release.sh', 'lib/services/scripts/bt_sync_daemon.py'], workingDirectory: projectDir.path);
       print('[OK] Executable permissions restored for Linux scripts.');
     } catch (_) {}
   }

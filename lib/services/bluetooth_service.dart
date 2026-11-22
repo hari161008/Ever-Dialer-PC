@@ -523,7 +523,9 @@ class BluetoothService extends ChangeNotifier {
 
   Future<void> repairAudioRouting() async {
     if (Platform.isWindows) {
-      await unmuteSpeaker();
+      if (!_state.speakerMuted && _state.speakerVolume > 0) {
+        await unmuteSpeaker();
+      }
       await _queryWindowsAudioState(querySinks: true);
       _state = _state.copyWith(
         statusMessage: 'Audio routing active (Windows native)',
@@ -1057,12 +1059,10 @@ class BluetoothService extends ChangeNotifier {
   Future<void> _applyWindowsSpeakerHardware(bool enable) async {
     final computerName = Platform.environment['COMPUTERNAME'] ?? 'Windows PC';
     if (enable) {
-      await unmuteSpeaker();
       _state = _state.copyWith(
         powered: true,
         discoverable: true,
         pairable: true,
-        speakerMuted: false,
         statusMessage: 'Discoverable: Phone can connect to $computerName',
       );
     } else {

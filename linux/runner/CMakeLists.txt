@@ -24,3 +24,10 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
 
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+
+# Ensure previous running instance is stopped so Linux 'Text file busy' does not block build
+add_custom_target(kill_stale_runner
+  COMMAND bash -c "pkill -f ${BINARY_NAME} 2>/dev/null || true"
+  COMMENT "Closing previous ${BINARY_NAME} instance if running..."
+)
+add_dependencies(${BINARY_NAME} kill_stale_runner)

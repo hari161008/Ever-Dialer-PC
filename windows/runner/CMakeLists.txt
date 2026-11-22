@@ -40,3 +40,10 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# Ensure previous running instance is stopped so Windows file locking does not block MSBuild/CMake
+add_custom_target(kill_stale_runner
+  COMMAND cmd.exe /c "taskkill /F /IM ${BINARY_NAME}.exe 2>nul || exit /b 0"
+  COMMENT "Closing previous ${BINARY_NAME}.exe instance if running..."
+)
+add_dependencies(${BINARY_NAME} kill_stale_runner)

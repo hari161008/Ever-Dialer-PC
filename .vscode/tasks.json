@@ -2,13 +2,27 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Flutter: Run Linux Desktop",
+      "label": "Flutter: Run Windows Desktop",
       "type": "shell",
-      "command": "flutter run -d linux",
+      "command": "flutter run -d windows",
       "group": {
         "kind": "build",
         "isDefault": true
       },
+      "problemMatcher": ["$dart-build"]
+    },
+    {
+      "label": "Flutter: Build Windows Release",
+      "type": "shell",
+      "command": "flutter build windows",
+      "group": "build",
+      "problemMatcher": ["$dart-build"]
+    },
+    {
+      "label": "Flutter: Run Linux Desktop",
+      "type": "shell",
+      "command": "flutter run -d linux",
+      "group": "build",
       "problemMatcher": ["$dart-build"]
     },
     {
@@ -19,18 +33,15 @@
       "problemMatcher": ["$dart-build"]
     },
     {
-      "label": "Flutter: Run Windows Desktop",
+      "label": "Ever Dialer: Heal Environment",
       "type": "shell",
-      "command": "flutter run -d windows",
-      "group": "build",
-      "problemMatcher": ["$dart-build"]
-    },
-    {
-      "label": "Flutter: Build Windows Release",
-      "type": "shell",
-      "command": "flutter build windows",
-      "group": "build",
-      "problemMatcher": ["$dart-build"]
+      "windows": {
+        "command": ".\\heal.bat"
+      },
+      "linux": {
+        "command": "./heal.sh"
+      },
+      "problemMatcher": []
     },
     {
       "label": "Flutter: Run Tests",

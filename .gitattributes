@@ -3,9 +3,13 @@
 
 # Linux scripts and files must have LF
 *.sh text eol=lf
+heal text eol=lf
+app_release text eol=lf
+build_release text eol=lf
 *.desktop text eol=lf
 *.py text eol=lf
 *.cc text eol=lf
+linux/** text eol=lf
 *.json text eol=lf
 *.yaml text eol=lf
 

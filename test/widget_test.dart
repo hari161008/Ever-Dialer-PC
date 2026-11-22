@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ever_dialer_pc/main.dart';
@@ -2004,6 +2005,44 @@ void main() {
 
     mockService.dispose();
     mockSyncService.dispose();
+  });
+
+  test('Toggling Bluetooth Connection & Sync ON while PC is muted does not unmute speakers on Windows', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    final List<MethodCall> methodCalls = [];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemService.channel, (MethodCall call) async {
+      methodCalls.add(call);
+      if (call.method == 'getPcVolume') {
+        return {'volume': 40, 'muted': true};
+      }
+      if (call.method == 'getAudioSinks') {
+        return <Map<String, dynamic>>[];
+      }
+      return null;
+    });
+
+    final service = BluetoothService(
+      autoStartTimer: false,
+      autoRefresh: false,
+      prefs: prefs,
+    );
+
+    // Initial state query
+    await service.refresh();
+    expect(service.state.speakerMuted, isTrue);
+
+    // Turn on Bluetooth Connection & Sync
+    await service.toggleSpeakerMode(true);
+
+    // Verify PC mute state remains muted and setPcMute was never called to unmute
+    expect(service.state.speakerModeEnabled, isTrue);
+    expect(service.state.speakerMuted, isTrue);
+    expect(methodCalls.any((call) => call.method == 'setPcMute'), isFalse);
+
+    service.dispose();
   });
 }
 

@@ -56,7 +56,7 @@ To ensure that both operating systems build cleanly, run reliably, and retain al
 
 - **Linux Packaging**:
   - Script: `bash scripts/app_release.sh` (or command alias `app_release`)
-  - Outputs: AppImage Setup Wizard, AppImage Standalone, DEB, RPM, Arch Linux package, and portable `.tar.gz`.
+  - Outputs: AppImage Setup (Recommended), AppImage Portable, DEB, RPM, Arch Linux package, and portable `.tar.gz`.
   - Output directory: `~/Downloads/Linux Release/`
 - **Windows Packaging**:
   - Script: `scripts\app_release_win.bat` (or command alias `app_release_win`)
@@ -106,10 +106,15 @@ When switching between Windows and Linux on this shared partition, path referenc
 1. **Automatic CMake Self-Healing**:
    - `windows/CMakeLists.txt` inspects `.dart_tool/package_config.json`. If it detects Linux paths (`/home/`), CMake automatically triggers `flutter pub get` during the build so clicking "Run" in Android Studio or VS Code on Windows never fails.
    - `linux/CMakeLists.txt` does the symmetric healing if it detects Windows drive paths (`file:///C:`).
-2. **Platform Sync Scripts**:
-   - When switching to Windows: run `scripts\switch_to_windows.bat` or `dart run scripts/sync_platform.dart`.
-   - When switching to Linux: run `bash scripts/switch_to_linux.sh` or `dart run scripts/sync_platform.dart`.
-3. **Bluetooth & Audio Stability on Windows**:
+2. **Universal Self-Healing Commands (`heal`)**:
+   - The project contains zero-hardcoded dynamic healing commands that locate the repository automatically from anywhere:
+     - **Windows**: Run `heal.bat`, `heal.cmd`, `heal.ps1`, or simply type `heal` in PowerShell / CMD.
+     - **Linux**: Run `./heal.sh`, `./heal`, or simply type `heal` in Bash / Zsh.
+   - When executed, the command cleans cross-OS package artifacts, regenerates `.dart_tool/package_config.json` with native paths, restores script permissions, and validates VS Code launch configs.
+3. **VS Code Dual-Boot Integration**:
+   - `.vscode/launch.json` uses platform-specific `windows` and `linux` properties on the primary launch target (`Ever Dialer PC`).
+   - Clicking the green **Run** button (F5) automatically targets the correct desktop environment without manual dropdown configuration.
+4. **Bluetooth & Audio Stability on Windows**:
    - Windows natively handles Bluetooth audio streaming (A2DP sink) through Windows Core Audio endpoints once the device is paired in Windows Bluetooth Settings.
    - Never call `AudioPlaybackConnection.OpenAsync()` in background loops or unpackaged threads in `windows/daemon/bt_sync_daemon.cpp`. Realtek/Intel Bluetooth drivers on Windows 11 24H2/25H2 suffer from a known kernel concurrency bug in `rtkbtfilter.sys` / `btha2dp.sys` that results in BugCheck 0x139 (KERNEL_SECURITY_CHECK_FAILURE) and instant system reboot.
    - `sync_service.dart` guards daemon execution so automated tests (`FLUTTER_TEST`) do not spawn unmanaged background daemons.

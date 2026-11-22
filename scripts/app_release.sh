@@ -113,6 +113,7 @@ APP_NAME="ever-dialer-pc"
 BINARY_NAME="ever_dialer_pc"
 ARCH="x86_64"
 DEB_ARCH="amd64"
+RELEASE_BASE_NAME="Ever Dialer PC v${VERSION}"
 
 echo -e "${BOLD}${CYAN}====================================================${RESET}"
 echo -e "${BOLD}${CYAN}      Ever Dialer PC — Universal Linux Release      ${RESET}"
@@ -126,7 +127,7 @@ echo ""
 # -------------------------------------------------------------------
 # 5. COMPILE FLUTTER RELEASE
 # -------------------------------------------------------------------
-echo -e "${BLUE}▶ 1/5 Compiling Flutter Linux Release Binary...${RESET}"
+echo -e "${BLUE}▶ 1/6 Compiling Flutter Linux Release Binary...${RESET}"
 # Stop any running release binary so CMake/ninja doesn't fail with 'Text file busy'
 pkill -f "build/linux/x64/release/bundle/ever_dialer_pc" 2>/dev/null || true
 sleep 0.2
@@ -143,6 +144,9 @@ if [ ! -d "$BUNDLE_DIR" ]; then
     echo "Error: Release bundle was not generated at $BUNDLE_DIR"
     exit 1
 fi
+
+# Clean legacy output names from output folder to avoid clutter
+rm -f "${OUTPUT_DIR}/Ever-Dialer-PC-"*.AppImage "${OUTPUT_DIR}/Ever Dialer PC "* "${OUTPUT_DIR}/${APP_NAME}_"*.deb "${OUTPUT_DIR}/${APP_NAME}-"*.rpm "${OUTPUT_DIR}/${APP_NAME}-"*.pkg.tar.zst "${OUTPUT_DIR}/${APP_NAME}-"*.tar.gz 2>/dev/null || true
 
 # Ensure desktop entry exists
 if [ ! -f "${PROJECT_DIR}/linux/ever_dialer_pc.desktop" ]; then
@@ -162,9 +166,8 @@ EOF
 fi
 
 # -------------------------------------------------------------------
-# 6. PACKAGE APPIMAGE (INSTALLABLE SETUP WIZARD)
+# 6. PACKAGE APPIMAGES (SETUP WIZARD & PORTABLE)
 # -------------------------------------------------------------------
-echo -e "${BLUE}▶ 2/5 Packaging Universal AppImage Setup Wizard (Runs on all Linux distros)...${RESET}"
 APPDIR="/tmp/EverDialer_AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
@@ -183,6 +186,8 @@ cp "${PROJECT_DIR}/uninstall.sh" "$APPDIR/uninstall.sh"
 cp "${PROJECT_DIR}/uninstall.sh" "$APPDIR/usr/bin/uninstall.sh"
 chmod +x "$APPDIR/uninstall.sh" "$APPDIR/usr/bin/uninstall.sh"
 
+# 6a. AppImage Setup Wizard
+echo -e "${BLUE}▶ 2/6 Packaging Universal AppImage Setup Wizard (Recommended)...${RESET}"
 cat << 'EOF' > "$APPDIR/AppRun"
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
@@ -194,37 +199,57 @@ if [ "$1" = "--run" ] || [ "$1" = "--portable" ] || [ "$1" = "--no-installer" ];
     exec "${HERE}/usr/bin/ever_dialer_pc" "$@"
 fi
 
-if [ "$1" = "--hidden" ] || [ "$1" = "--background" ] || [ "$1" = "--minimized" ] || [ "$1" = "--installer" ] || [ "$1" = "--setup" ]; then
+if [ "$1" = "--hidden" ] || [ "$1" = "--background" ] || [ "$1" = "--minimized" ]; then
     exec "${HERE}/usr/bin/ever_dialer_pc" "$@"
 fi
 
-# By default, launching the AppImage opens the interactive Setup Wizard (like Windows exe installers)
+# By default, launching the Setup AppImage opens the interactive Setup Wizard
 exec "${HERE}/usr/bin/ever_dialer_pc" --installer "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-APPIMAGE_SETUP_OUT="${OUTPUT_DIR}/Ever-Dialer-PC-Setup-${VERSION}-${ARCH}.AppImage"
-APPIMAGE_OUT="${OUTPUT_DIR}/Ever-Dialer-PC-${VERSION}-${ARCH}.AppImage"
-rm -f "$APPIMAGE_SETUP_OUT" "$APPIMAGE_OUT"
+APPIMAGE_SETUP_OUT="${OUTPUT_DIR}/${RELEASE_BASE_NAME} Setup (Recommended).AppImage"
+rm -f "$APPIMAGE_SETUP_OUT"
 ARCH=x86_64 appimagetool --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_SETUP_OUT" > /dev/null 2>&1 || \
 ARCH=x86_64 appimagetool --appimage-extract-and-run --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_SETUP_OUT" > /dev/null 2>&1 || \
 ARCH=x86_64 appimagetool --appimage-extract-and-run "$APPDIR" "$APPIMAGE_SETUP_OUT" > /dev/null 2>&1 || true
 
 if [ -f "$APPIMAGE_SETUP_OUT" ]; then
     chmod +x "$APPIMAGE_SETUP_OUT"
-    cp -f "$APPIMAGE_SETUP_OUT" "$APPIMAGE_OUT"
     echo -e "${GREEN}  ✓ Created AppImage Setup Wizard:${RESET} $(basename "$APPIMAGE_SETUP_OUT")"
-    echo -e "${GREEN}  ✓ Created AppImage Release:${RESET} $(basename "$APPIMAGE_OUT")"
 else
-    echo -e "${YELLOW}  ⚠ AppImage creation skipped or failed${RESET}"
+    echo -e "${YELLOW}  ⚠ AppImage Setup Wizard creation skipped or failed${RESET}"
+fi
+
+# 6b. AppImage Portable
+echo -e "${BLUE}▶ 3/6 Packaging Universal AppImage Portable...${RESET}"
+cat << 'EOF' > "$APPDIR/AppRun"
+#!/bin/sh
+HERE="$(dirname "$(readlink -f "${0}")")"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/bin/lib:${LD_LIBRARY_PATH}"
+exec "${HERE}/usr/bin/ever_dialer_pc" "$@"
+EOF
+chmod +x "$APPDIR/AppRun"
+
+APPIMAGE_PORTABLE_OUT="${OUTPUT_DIR}/${RELEASE_BASE_NAME} Portable.AppImage"
+rm -f "$APPIMAGE_PORTABLE_OUT"
+ARCH=x86_64 appimagetool --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_PORTABLE_OUT" > /dev/null 2>&1 || \
+ARCH=x86_64 appimagetool --appimage-extract-and-run --runtime-file "${LOCAL_BIN}/runtime-x86_64" "$APPDIR" "$APPIMAGE_PORTABLE_OUT" > /dev/null 2>&1 || \
+ARCH=x86_64 appimagetool --appimage-extract-and-run "$APPDIR" "$APPIMAGE_PORTABLE_OUT" > /dev/null 2>&1 || true
+
+if [ -f "$APPIMAGE_PORTABLE_OUT" ]; then
+    chmod +x "$APPIMAGE_PORTABLE_OUT"
+    echo -e "${GREEN}  ✓ Created AppImage Portable:${RESET} $(basename "$APPIMAGE_PORTABLE_OUT")"
+else
+    echo -e "${YELLOW}  ⚠ AppImage Portable creation skipped or failed${RESET}"
 fi
 rm -rf "$APPDIR"
 
 # -------------------------------------------------------------------
 # 7. PACKAGE DEB, RPM, & ARCH LINUX WITH NFPM
 # -------------------------------------------------------------------
-echo -e "${BLUE}▶ 3/5 Packaging Debian (.deb) for Ubuntu, Mint, Debian, Pop!_OS...${RESET}"
-echo -e "${BLUE}▶ 4/5 Packaging RPM (.rpm) for Fedora, openSUSE, RHEL, Rocky...${RESET}"
+echo -e "${BLUE}▶ 4/6 Packaging Debian (.deb) for Ubuntu, Mint, Debian, Pop!_OS...${RESET}"
+echo -e "${BLUE}▶ 5/6 Packaging RPM (.rpm) for Fedora, openSUSE, RHEL, Rocky...${RESET}"
 
 NFPM_CONFIG="/tmp/ever_dialer_nfpm.yaml"
 cat << EOF > "$NFPM_CONFIG"
@@ -260,9 +285,9 @@ depends:
   - python3
 EOF
 
-DEB_OUT="${OUTPUT_DIR}/${APP_NAME}_${VERSION}_${DEB_ARCH}.deb"
-RPM_OUT="${OUTPUT_DIR}/${APP_NAME}-${VERSION}-1.${ARCH}.rpm"
-ARCH_OUT="${OUTPUT_DIR}/${APP_NAME}-${VERSION}-1-${ARCH}.pkg.tar.zst"
+DEB_OUT="${OUTPUT_DIR}/${RELEASE_BASE_NAME}.deb"
+RPM_OUT="${OUTPUT_DIR}/${RELEASE_BASE_NAME}.rpm"
+ARCH_OUT="${OUTPUT_DIR}/${RELEASE_BASE_NAME}.pkg.tar.zst"
 rm -f "$DEB_OUT" "$RPM_OUT" "$ARCH_OUT"
 
 if nfpm package -f "$NFPM_CONFIG" --packager deb --target "$DEB_OUT" 2>/dev/null; then
@@ -286,8 +311,8 @@ rm -f "$NFPM_CONFIG"
 # -------------------------------------------------------------
 # 8. PACKAGE PORTABLE TARBALL (.tar.gz)
 # -------------------------------------------------------------
-echo -e "${BLUE}▶ 5/5 Packaging Portable Tarball (.tar.gz) for any Linux distro...${RESET}"
-PORTABLE_DIR="/tmp/${APP_NAME}-${VERSION}"
+echo -e "${BLUE}▶ 6/6 Packaging Portable Tarball (.tar.gz) for any Linux distro...${RESET}"
+PORTABLE_DIR="/tmp/${RELEASE_BASE_NAME}"
 rm -rf "$PORTABLE_DIR"
 mkdir -p "$PORTABLE_DIR"
 cp -r "$BUNDLE_DIR/"* "$PORTABLE_DIR/"
@@ -303,9 +328,9 @@ exec "${SCRIPT_DIR}/ever_dialer_pc" "$@"
 EOF
 chmod +x "$PORTABLE_DIR/run.sh"
 
-TAR_OUT="${OUTPUT_DIR}/${APP_NAME}-${VERSION}-linux-${ARCH}.tar.gz"
+TAR_OUT="${OUTPUT_DIR}/${RELEASE_BASE_NAME}.tar.gz"
 rm -f "$TAR_OUT"
-tar -czf "$TAR_OUT" -C "/tmp" "${APP_NAME}-${VERSION}"
+tar -czf "$TAR_OUT" -C "/tmp" "${RELEASE_BASE_NAME}"
 rm -rf "$PORTABLE_DIR"
 echo -e "${GREEN}  ✓ Created Portable Tarball:${RESET} $(basename "$TAR_OUT")"
 

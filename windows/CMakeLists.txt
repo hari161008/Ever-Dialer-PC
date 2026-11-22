@@ -5,8 +5,8 @@ project(ever_dialer_pc LANGUAGES CXX)
 # Dual-boot self-healing: Auto-repair package_config.json if switched from Linux
 set(PKG_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../.dart_tool/package_config.json")
 if(EXISTS "${PKG_CONFIG_FILE}")
-  file(READ "${PKG_CONFIG_FILE}" PKG_CONFIG_STR LIMIT 2000)
-  if(PKG_CONFIG_STR MATCHES "/home/")
+  file(READ "${PKG_CONFIG_FILE}" PKG_CONFIG_STR LIMIT 3000)
+  if(PKG_CONFIG_STR MATCHES "/home/" OR PKG_CONFIG_STR MATCHES "file:///[a-z0-9_.-]+/")
     message(STATUS "[Dual-Boot] Detected Linux package paths in Windows environment. Healing dependencies...")
     execute_process(
       COMMAND cmd.exe /c "flutter pub get"
@@ -17,10 +17,19 @@ endif()
 
 # Auto-restore ephemeral cpp_client_wrapper if purged or missing
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/cpp_client_wrapper/core_implementations.cc")
-  file(GLOB_RECURSE ENGINE_WRAPPER "C:/Android/flutter/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper/*")
-  if(ENGINE_WRAPPER)
-    file(COPY "C:/Android/flutter/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper/"
-         DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/cpp_client_wrapper")
+  set(ENGINE_WRAPPER_SRC "")
+  if(DEFINED ENV{FLUTTER_ROOT} AND EXISTS "$ENV{FLUTTER_ROOT}/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper")
+    set(ENGINE_WRAPPER_SRC "$ENV{FLUTTER_ROOT}/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper/")
+  elseif(EXISTS "C:/Android/flutter/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper")
+    set(ENGINE_WRAPPER_SRC "C:/Android/flutter/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper/")
+  endif()
+
+  if(ENGINE_WRAPPER_SRC)
+    file(GLOB_RECURSE ENGINE_WRAPPER "${ENGINE_WRAPPER_SRC}*")
+    if(ENGINE_WRAPPER)
+      file(COPY "${ENGINE_WRAPPER_SRC}"
+           DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/cpp_client_wrapper")
+    endif()
   endif()
 endif()
 
