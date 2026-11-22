@@ -60,7 +60,7 @@ To ensure that both operating systems build cleanly, run reliably, and retain al
   - Output directory: `~/Downloads/Linux Release/`
 - **Windows Packaging**:
   - Script: `scripts\app_release_win.bat` (or command alias `app_release_win`)
-  - Outputs: Inno Setup executable installer and portable zip package.
+  - Outputs: Inno Setup executable installer ("Ever Dialer <Version code> Setup Recommended.exe") and portable zip package.
   - Output directory: `%USERPROFILE%\Downloads\Windows Release\`
 
 ---

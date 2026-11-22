@@ -24,7 +24,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=commandline dialog
 OutputDir=Output
-OutputBaseFilename=Ever-Dialer-PC-v{#MyAppVersion}-windows-x64-Setup
+OutputBaseFilename=Ever Dialer {#MyAppVersion} Setup Recommended
 SetupIconFile=..\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 

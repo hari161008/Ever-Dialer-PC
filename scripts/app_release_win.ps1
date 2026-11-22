@@ -188,12 +188,14 @@ if (-not (Test-Path "$ReleaseDir\bt_sync_daemon.exe")) {
 }
 
 Write-Host "[STEP 3/3] Compiling standalone Windows installer executable..." -ForegroundColor Green
-$SetupExeName = "Ever-Dialer-PC-v$Version-windows-x64-Setup"
+$SetupExeName = "Ever Dialer $Version Setup Recommended"
 $FinalExePath = Join-Path $DownloadsFolder "$SetupExeName.exe"
 
 # Clean any existing zip, folders, or old build outputs in Downloads so only one exe is present
 Get-ChildItem -Path $DownloadsFolder -Directory | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $DownloadsFolder -Filter "*.zip" | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DownloadsFolder -Filter "Ever-Dialer-PC-*.exe" | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DownloadsFolder -Filter "Ever Dialer * Setup Recommended.exe" | Remove-Item -Force -ErrorAction SilentlyContinue
 
 & $IsccPath /Qp /O"$DownloadsFolder" /F"$SetupExeName" /DMyAppVersion="$Version" "$ProjectDir\windows\installer\EverDialerSetup.iss"
 
