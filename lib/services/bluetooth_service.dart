@@ -406,9 +406,6 @@ class BluetoothService extends ChangeNotifier {
           }
         } catch (_) {}
 
-        // 8. Ensure master output sink is unmuted
-        await _safeRun('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', '0']);
-
         _state = _state.copyWith(
           powered: true,
           discoverable: true,
