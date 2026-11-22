@@ -159,16 +159,20 @@ class BluetoothState {
 
 class BluetoothService extends ChangeNotifier {
   static const _prefSpeakerModeKey = 'speaker_mode_enabled';
+  static const _prefLastPhoneMacKey = 'last_paired_phone_mac';
+  static const _prefLastPhoneNameKey = 'last_paired_phone_name';
 
   BluetoothState _state = const BluetoothState();
   Timer? _pollTimer;
   SharedPreferences? _prefs;
   bool _isRefreshing = false;
   bool _autoStartTimer = true;
+  String? _lastPhoneMac;
 
   bool? _originalPowered;
 
   BluetoothState get state => _state;
+  String? get lastPhoneMac => _lastPhoneMac;
 
   BluetoothService({
     bool autoStartTimer = true,
@@ -180,6 +184,7 @@ class BluetoothService extends ChangeNotifier {
     // Check initial saved state synchronously if prefs already provided
     if (_prefs != null) {
       final saved = _prefs!.getBool(_prefSpeakerModeKey) ?? false;
+      _lastPhoneMac = _prefs!.getString(_prefLastPhoneMacKey);
       _state = _state.copyWith(speakerModeEnabled: saved);
     }
     _init(autoStartTimer, autoRefresh);
@@ -197,6 +202,7 @@ class BluetoothService extends ChangeNotifier {
   Future<void> _init(bool autoStartTimer, bool autoRefresh) async {
     _prefs ??= await SharedPreferences.getInstance();
     final savedEnabled = _prefs?.getBool(_prefSpeakerModeKey) ?? false;
+    _lastPhoneMac ??= _prefs?.getString(_prefLastPhoneMacKey);
 
     if (savedEnabled != _state.speakerModeEnabled) {
       _state = _state.copyWith(speakerModeEnabled: savedEnabled);
@@ -300,13 +306,11 @@ class BluetoothService extends ChangeNotifier {
         // 2. Power on bluetooth
         await _safeRun('bluetoothctl', ['power', 'on']);
 
-        // 3. Register BlueZ agent and make pairable & discoverable
-        await _safeRun('bluetoothctl', ['agent', 'NoInputNoOutput']);
-        await _safeRun('bluetoothctl', ['default-agent']);
+        // 3. Make adapter pairable and discoverable
         await _safeRun('bluetoothctl', ['pairable', 'on']);
         await _safeRun('bluetoothctl', ['discoverable', 'on']);
 
-        // 4. Set DiscoverableTimeout to 0 via D-Bus (bypasses broken discoverable-timeout CLI)
+        // 4. Set DiscoverableTimeout & PairableTimeout to 0 via D-Bus (always connectable)
         final adapterPaths = ['/org/bluez/hci0', '/org/bluez/hci1'];
         for (final adapterPath in adapterPaths) {
           await _safeRun('gdbus', [
@@ -320,6 +324,19 @@ class BluetoothService extends ChangeNotifier {
             'org.freedesktop.DBus.Properties.Set',
             'org.bluez.Adapter1',
             'DiscoverableTimeout',
+            '<uint32 0>',
+          ]);
+          await _safeRun('gdbus', [
+            'call',
+            '--system',
+            '--dest',
+            'org.bluez',
+            '--object-path',
+            adapterPath,
+            '--method',
+            'org.freedesktop.DBus.Properties.Set',
+            'org.bluez.Adapter1',
+            'PairableTimeout',
             '<uint32 0>',
           ]);
           await _safeRun('gdbus', [
@@ -525,8 +542,6 @@ class BluetoothService extends ChangeNotifier {
       // 1. Unblock bluetooth and power on
       await _safeRun('rfkill', ['unblock', 'bluetooth']);
       await _safeRun('bluetoothctl', ['power', 'on']);
-      await _safeRun('bluetoothctl', ['agent', 'NoInputNoOutput']);
-      await _safeRun('bluetoothctl', ['default-agent']);
       await _safeRun('bluetoothctl', ['pairable', 'on']);
       await _safeRun('bluetoothctl', ['discoverable', 'on']);
 
@@ -717,6 +732,8 @@ class BluetoothService extends ChangeNotifier {
 
   Future<bool> connectDevice(String mac) async {
     try {
+      _lastPhoneMac = mac;
+      _prefs?.setString(_prefLastPhoneMacKey, mac);
       if (Platform.isLinux) {
         await _safeRun('bluetoothctl', ['trust', mac]);
         final res = await _safeRun(
@@ -834,8 +851,15 @@ class BluetoothService extends ChangeNotifier {
                   name: name,
                   connected: true,
                 );
+                _lastPhoneMac = mac;
+                _prefs?.setString(_prefLastPhoneMacKey, mac);
+                _prefs?.setString(_prefLastPhoneNameKey, name);
                 // Ensure device is trusted so BlueZ doesn't drop incoming audio streams
                 _safeRun('bluetoothctl', ['trust', mac]);
+                if (_state.connectedDevice == null) {
+                  _ensureBluezProfileActive();
+                  _ensureBluezAudioRouting();
+                }
                 break;
               }
             }
@@ -843,24 +867,70 @@ class BluetoothService extends ChangeNotifier {
         }
 
         // If Speaker Mode is active and no device is connected yet,
-        // ensure discoverability and pairability remain ON so the PC is always visible to the phone
-        if (_state.speakerModeEnabled && connectedDevice == null && !discoverable) {
-          _safeRun('bluetoothctl', ['discoverable', 'on']);
-          _safeRun('bluetoothctl', ['pairable', 'on']);
-          _safeRun('gdbus', [
-            'call',
-            '--system',
-            '--dest',
-            'org.bluez',
-            '--object-path',
-            '/org/bluez/hci0',
-            '--method',
-            'org.freedesktop.DBus.Properties.Set',
-            'org.bluez.Adapter1',
-            'Discoverable',
-            '<true>',
-          ]);
-          discoverable = true;
+        // ensure adapter stays powered on, discoverable, and pairable with zero timeouts (like a Bluetooth speaker)
+        if (_state.speakerModeEnabled && connectedDevice == null) {
+          if (!powered) {
+            _safeRun('bluetoothctl', ['power', 'on']);
+            _safeRun('gdbus', [
+              'call',
+              '--system',
+              '--dest',
+              'org.bluez',
+              '--object-path',
+              '/org/bluez/hci0',
+              '--method',
+              'org.freedesktop.DBus.Properties.Set',
+              'org.bluez.Adapter1',
+              'Powered',
+              '<true>',
+            ]);
+            powered = true;
+          }
+
+          if (!discoverable) {
+            _safeRun('bluetoothctl', ['discoverable', 'on']);
+            _safeRun('bluetoothctl', ['pairable', 'on']);
+            _safeRun('gdbus', [
+              'call',
+              '--system',
+              '--dest',
+              'org.bluez',
+              '--object-path',
+              '/org/bluez/hci0',
+              '--method',
+              'org.freedesktop.DBus.Properties.Set',
+              'org.bluez.Adapter1',
+              'Discoverable',
+              '<true>',
+            ]);
+            _safeRun('gdbus', [
+              'call',
+              '--system',
+              '--dest',
+              'org.bluez',
+              '--object-path',
+              '/org/bluez/hci0',
+              '--method',
+              'org.freedesktop.DBus.Properties.Set',
+              'org.bluez.Adapter1',
+              'DiscoverableTimeout',
+              '<uint32 0>',
+            ]);
+            _safeRun('gdbus', [
+              'call',
+              '--system',
+              '--dest',
+              'org.bluez',
+              '--object-path',
+              '/org/bluez/hci0',
+              '--method',
+              'org.freedesktop.DBus.Properties.Set',
+              'org.bluez.Adapter1',
+              'PairableTimeout',
+              '<uint32 0>',
+            ]);
+            discoverable = true;
+          }
         }
 
         _state = _state.copyWith(

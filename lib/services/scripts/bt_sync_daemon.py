@@ -148,15 +148,19 @@ def try_connect_rfcomm(mac, channel=RFCOMM_CHANNEL):
     with sock_lock:
         if active_client_sock is not None:
             return
-    try:
-        log(f"Attempting outgoing RFCOMM connect to {mac} on channel {channel}...")
-        sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-        sock.settimeout(3.5)
-        sock.connect((mac, channel))
-        log(f"Outgoing RFCOMM connected to {mac} on channel {channel}")
-        threading.Thread(target=handle_socket_connection, args=(sock, (mac, channel), mac), daemon=True).start()
-    except Exception as e:
-        log(f"Outgoing RFCOMM connect to {mac} channel {channel} failed: {e}")
+    for attempt in range(2):
+        try:
+            log(f"Attempting outgoing RFCOMM connect to {mac} on channel {channel} (attempt {attempt+1})...")
+            sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+            sock.settimeout(3.5)
+            sock.connect((mac, channel))
+            log(f"Outgoing RFCOMM connected to {mac} on channel {channel}")
+            threading.Thread(target=handle_socket_connection, args=(sock, (mac, channel), mac), daemon=True).start()
+            return
+        except Exception as e:
+            log(f"Outgoing RFCOMM connect to {mac} channel {channel} failed: {e}")
+            if attempt == 0:
+                time.sleep(1.0)
 
 def start_bluez_profile():
     if not sys.platform.startswith("linux"):
@@ -291,11 +295,50 @@ def start_bluez_profile():
         log(f"Registered BlueZ Profile1 object for UUID {EVER_DIALER_UUID}")
 
         try:
-            agent_manager.RegisterAgent('/everdialer/agent', 'NoInputNoOutput')
+            try:
+                agent_manager.UnregisterAgent('/everdialer/agent')
+            except Exception:
+                pass
+            agent_manager.RegisterAgent('/everdialer/agent', 'DisplayYesNo')
             agent_manager.RequestDefaultAgent('/everdialer/agent')
-            log("Registered BlueZ Agent1 with NoInputNoOutput capability")
+            log("Registered BlueZ Agent1 with DisplayYesNo capability (permanent bonding enabled)")
         except Exception as agent_err:
-            log(f"Note: Agent registration: {agent_err}")
+            log(f"Note: Agent registration with DisplayYesNo: {agent_err}")
+            try:
+                agent_manager.RegisterAgent('/everdialer/agent', 'NoInputNoOutput')
+                agent_manager.RequestDefaultAgent('/everdialer/agent')
+                log("Registered BlueZ Agent1 with NoInputNoOutput fallback")
+            except Exception as e2:
+                log(f"Agent fallback registration error: {e2}")
+
+        def on_device_property_changed(interface, changed_props, invalidated_props, path):
+            if interface == 'org.bluez.Device1' and 'Connected' in changed_props:
+                is_connected = bool(changed_props['Connected'])
+                log(f"D-Bus Device1 {path} Connected changed: {is_connected}")
+                if is_connected:
+                    try:
+                        dev_obj = bus.get_object('org.bluez', path)
+                        dev_props = dbus.Interface(dev_obj, 'org.freedesktop.DBus.Properties')
+                        alias = str(dev_props.Get('org.bluez.Device1', 'Alias'))
+                        addr = str(dev_props.Get('org.bluez.Device1', 'Address'))
+                        dev_props.Set('org.bluez.Device1', 'Trusted', dbus.Boolean(True))
+                        log(f"Device {alias} ({addr}) connected via Bluetooth. Establishing sync...")
+                        threading.Thread(target=try_connect_rfcomm, args=(addr,), daemon=True).start()
+                    except Exception as e:
+                        log(f"Note handling device connection on {path}: {e}")
+                else:
+                    log(f"Device disconnected on {path}")
+
+        try:
+            bus.add_signal_receiver(
+                on_device_property_changed,
+                dbus_interface='org.freedesktop.DBus.Properties',
+                signal_name='PropertiesChanged',
+                path_keyword='path'
+            )
+            log("Registered BlueZ D-Bus PropertiesChanged signal listener for instant auto-connect")
+        except Exception as sig_err:
+            log(f"Note: Could not register PropertiesChanged signal: {sig_err}")
 
         glib_loop = GLib.MainLoop()
         t = threading.Thread(target=glib_loop.run, daemon=True)
